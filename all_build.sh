@@ -13,15 +13,15 @@ _log() {
   now="$(date '+%Y-%m-%d %H:%M:%S')"
 
   if [[ -t 1 ]]; then
-    printf '\033[%sm[%-7s]\033[0m %s %s\n' "$color" "$level" "$now" "$*"
+    printf '\033[%sm[%s]\033[0m %s %s\n' "$color" "$level" "$now" "$*"
   else
-    printf '[%-7s] %s %s\n' "$level" "$now" "$*"
+    printf '[%s] %s %s\n' "$level" "$now" "$*"
   fi
 }
 
-log_info()    { _log "INFO"    "34" "$@"; }
-log_success() { _log "SUCCESS" "32" "$@"; }
-log_error()   { _log "ERROR"   "31" "$@" >&2; }
+log_info()    { _log "INFO" "34" "$@"; }
+log_success() { _log "DONE" "32" "$@"; }
+log_error()   { _log "FAIL" "31" "$@" >&2; }
 
 print_run_summary() {
   local message="$1"
