@@ -1,0 +1,4 @@
+.runtime/
+wechat-codex
+*.pid
+service.log
