@@ -25,9 +25,8 @@ _log() {
   fi
 }
 
-log_info()    { _log "INFO"  "34" "$@"; }
-log_success() { _log "INFO"  "32" "$@"; }
-log_error()   { _log "ERROR" "31" "$@" >&2; }
+log_info()  { _log "INFO"  "32" "$@"; }
+log_error() { _log "ERROR" "31" "$@" >&2; }
 
 print_run_summary() {
   local message="$1"
@@ -35,7 +34,7 @@ print_run_summary() {
   elapsed="$(( $(date +%s) - SCRIPT_START_TS ))"
   end_at="$(date '+%Y-%m-%d %H:%M:%S %Z')"
 
-  log_success "$message"
+  log_info "$message"
   log_info "Elapsed: ${elapsed}s"
   log_info "Completed at: ${end_at}"
 }
