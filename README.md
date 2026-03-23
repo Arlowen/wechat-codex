@@ -8,11 +8,62 @@
 - **稳定消息轮询**：基于 iLink API 稳定接收并处理微信消息。
 - **进程守护管理**：原生支持将轮询服务一键挂载至操作系统后台运行。
 
-## 🛠 编译安装
+## 🚀 一键安装
 
-确保你的环境中已安装 Go 1.16+。
+发布版本会在推送 `v*` tag 后自动构建并上传到 GitHub Releases，当前提供：
 
-**使用构建脚本（MacOS/Linux）：**
+- macOS `amd64` / `arm64`
+- Linux `amd64` / `arm64`
+
+直接安装最新版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/install.sh | bash
+```
+
+安装指定版本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/install.sh | WECHAT_CODEX_VERSION=v0.1.0 bash
+```
+
+安装到自定义目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/install.sh | INSTALL_DIR="$HOME/.local/bin" bash
+```
+
+安装完成后可执行：
+
+```bash
+wechat-codex version
+```
+
+## 🧹 一键卸载
+
+卸载已安装的二进制：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/uninstall.sh | bash
+```
+
+如果是安装到了自定义目录：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/uninstall.sh | INSTALL_DIR="$HOME/.local/bin" bash
+```
+
+如果还需要一并清理运行时数据 `~/.wechat-codex`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/uninstall.sh | WECHAT_CODEX_PURGE_DATA=1 bash
+```
+
+## 🛠 本地编译
+
+确保你的环境中已安装 Go 1.25+。
+
+**使用构建脚本（macOS/Linux）：**
 ```bash
 ./all_build.sh
 ```
@@ -20,6 +71,11 @@
 **或者手动构建：**
 ```bash
 go build -o bin/wechat-codex .
+```
+
+**本地生成 release 包：**
+```bash
+./scripts/build-release.sh v0.1.0
 ```
 
 ## 📖 使用指南

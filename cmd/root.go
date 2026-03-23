@@ -7,9 +7,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	Version   = "dev"
+	Commit    = "unknown"
+	BuildDate = "unknown"
+)
+
 var rootCmd = &cobra.Command{
-	Use:   "wechat-codex",
-	Short: "Go version of wechat-codex for WeChat bot operations",
+	Use:     "wechat-codex",
+	Short:   "Go version of wechat-codex for WeChat bot operations",
+	Version: Version,
 	CompletionOptions: cobra.CompletionOptions{
 		DisableDefaultCmd: true,
 	},
