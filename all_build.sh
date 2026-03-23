@@ -19,15 +19,15 @@ _log() {
   fi
 
   if [[ -t 1 ]]; then
-    printf '\033[90m%s\033[0m \033[%sm%7s\033[0m %s\n' "$now" "$color" "$level" "$*"
+    printf '\033[90m%s\033[0m \033[%sm%5s\033[0m %s\n' "$now" "$color" "$level" "$*"
   else
-    printf '%s %7s %s\n' "$now" "$level" "$*"
+    printf '%s %5s %s\n' "$now" "$level" "$*"
   fi
 }
 
-log_info()    { _log "INFO"    "34" "$@"; }
-log_success() { _log "SUCCESS" "32" "$@"; }
-log_error()   { _log "ERROR"   "31" "$@" >&2; }
+log_info()    { _log "INFO"  "34" "$@"; }
+log_success() { _log "INFO"  "32" "$@"; }
+log_error()   { _log "ERROR" "31" "$@" >&2; }
 
 print_run_summary() {
   local message="$1"
