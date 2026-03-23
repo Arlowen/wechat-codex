@@ -10,6 +10,9 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "wechat-codex",
 	Short: "Go version of wechat-codex for WeChat bot operations",
+	CompletionOptions: cobra.CompletionOptions{
+		DisableDefaultCmd: true,
+	},
 }
 
 func Execute() {
