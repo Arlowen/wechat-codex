@@ -2,6 +2,7 @@ package wechat
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -14,6 +15,13 @@ import (
 )
 
 const DefaultWechatBaseURL = "https://ilinkai.weixin.qq.com"
+
+type APIClient interface {
+	GetUpdates(buf string, timeoutSec int) (map[string]interface{}, error)
+	SendText(toUserID, contextToken, text string) (string, error)
+	GetConfig(ilinkUserID, contextToken string) (map[string]interface{}, error)
+	SendTyping(ilinkUserID, typingTicket string, status int) error
+}
 
 type Client struct {
 	BaseURL    string
@@ -28,7 +36,7 @@ func NewClient(baseURL, token string) *Client {
 	return &Client{
 		BaseURL:    baseURL,
 		Token:      token,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		HTTPClient: &http.Client{},
 	}
 }
 
@@ -45,7 +53,7 @@ func buildBaseInfo() BaseInfo {
 	return BaseInfo{ChannelVersion: "tg-codex-wechat/0.1"}
 }
 
-func (c *Client) requestJSON(method, endpoint string, query url.Values, payload map[string]interface{}, auth bool, extraHeaders map[string]string) (map[string]interface{}, error) {
+func (c *Client) requestJSON(method, endpoint string, query url.Values, payload map[string]interface{}, auth bool, timeoutSec int, extraHeaders map[string]string) (map[string]interface{}, error) {
 	reqURL := fmt.Sprintf("%s/%s", c.BaseURL, endpoint)
 	if len(query) > 0 {
 		reqURL += "?" + query.Encode()
@@ -66,7 +74,14 @@ func (c *Client) requestJSON(method, endpoint string, query url.Values, payload 
 		bodyReader = bytes.NewReader(data)
 	}
 
-	req, err := http.NewRequest(method, reqURL, bodyReader)
+	ctx := context.Background()
+	if timeoutSec > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+		defer cancel()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, bodyReader)
 	if err != nil {
 		return nil, err
 	}
@@ -114,24 +129,22 @@ func (c *Client) requestJSON(method, endpoint string, query url.Values, payload 
 func (c *Client) StartLogin(botType string) (map[string]interface{}, error) {
 	query := url.Values{}
 	query.Set("bot_type", botType)
-	return c.requestJSON(http.MethodGet, "ilink/bot/get_bot_qrcode", query, nil, false, nil)
+	return c.requestJSON(http.MethodGet, "ilink/bot/get_bot_qrcode", query, nil, false, 30, nil)
 }
 
 func (c *Client) GetQRCodeStatus(qrcode string) (map[string]interface{}, error) {
-	// Increase timeout for long polling specific to this endpoint.
-	// Since HTTPClient is reused and may be used concurrently, it's safer to clone or set request specifically.
-	// For simplicity, we just rely on Context for timeout on individual requests if needed.
-	// But let's build a one-off request with context here to avoid modifying global client timeout safely.
-	// We'll skip for now since it's a simple client.
 	query := url.Values{}
 	query.Set("qrcode", qrcode)
 	extra := map[string]string{"iLink-App-ClientVersion": "1"}
-	return c.requestJSON(http.MethodGet, "ilink/bot/get_qrcode_status", query, nil, false, extra)
+	return c.requestJSON(http.MethodGet, "ilink/bot/get_qrcode_status", query, nil, false, 40, extra)
 }
 
 func (c *Client) GetUpdates(buf string, timeoutSec int) (map[string]interface{}, error) {
 	payload := map[string]interface{}{"get_updates_buf": buf}
-	return c.requestJSON(http.MethodPost, "ilink/bot/getupdates", nil, payload, true, nil)
+	if timeoutSec < 5 {
+		timeoutSec = 5
+	}
+	return c.requestJSON(http.MethodPost, "ilink/bot/getupdates", nil, payload, true, timeoutSec, nil)
 }
 
 func (c *Client) SendText(toUserID, contextToken, text string) (string, error) {
@@ -152,7 +165,7 @@ func (c *Client) SendText(toUserID, contextToken, text string) (string, error) {
 			},
 		},
 	}
-	_, err := c.requestJSON(http.MethodPost, "ilink/bot/sendmessage", nil, payload, true, nil)
+	_, err := c.requestJSON(http.MethodPost, "ilink/bot/sendmessage", nil, payload, true, 20, nil)
 	return clientID, err
 }
 
@@ -161,7 +174,7 @@ func (c *Client) GetConfig(ilinkUserID, contextToken string) (map[string]interfa
 		"ilink_user_id": ilinkUserID,
 		"context_token": contextToken,
 	}
-	return c.requestJSON(http.MethodPost, "ilink/bot/getconfig", nil, payload, true, nil)
+	return c.requestJSON(http.MethodPost, "ilink/bot/getconfig", nil, payload, true, 15, nil)
 }
 
 func (c *Client) SendTyping(ilinkUserID, typingTicket string, status int) error {
@@ -170,6 +183,6 @@ func (c *Client) SendTyping(ilinkUserID, typingTicket string, status int) error 
 		"typing_ticket": typingTicket,
 		"status":        status,
 	}
-	_, err := c.requestJSON(http.MethodPost, "ilink/bot/sendtyping", nil, payload, true, nil)
+	_, err := c.requestJSON(http.MethodPost, "ilink/bot/sendtyping", nil, payload, true, 15, nil)
 	return err
 }

@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
+	"time"
 	"wechat-codex/wechat"
 
 	"github.com/spf13/cobra"
@@ -20,12 +19,35 @@ var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the WeChat polling service",
 	Run: func(cmd *cobra.Command, args []string) {
-		runtimeDir := getRuntimeDir()
-		store := wechat.NewAccountStore(runtimeDir)
+		config, err := resolveStartConfig(cmd)
+		if err != nil {
+			fmt.Printf("[error] 启动配置无效: %v\n", err)
+			os.Exit(1)
+		}
+
+		if !parseBoolEnv(os.Getenv("WECHAT_ENABLED"), true) {
+			fmt.Println("[info] 微信服务已被 WECHAT_ENABLED=0 显式关闭")
+			return
+		}
+
+		if err := os.MkdirAll(config.RuntimeDir, 0o755); err != nil {
+			fmt.Printf("[error] 无法创建 runtime 目录: %v\n", err)
+			os.Exit(1)
+		}
+
+		if pid, running, err := liveServicePID(config.RuntimeDir, os.Getpid()); err != nil {
+			fmt.Printf("[error] 无法检查现有服务状态: %v\n", err)
+			os.Exit(1)
+		} else if running {
+			fmt.Printf("[info] 服务已运行，PID: %d\n", pid)
+			return
+		}
+
+		store := wechat.NewAccountStore(config.RuntimeDir)
 		acc, err := store.LoadAccount()
 		if err != nil || acc.Token == "" {
 			fmt.Println("\n[info] 当前为第一次启动，需要先扫描二维码绑定微信：")
-			if err := wechat.LoginFlow(runtimeDir, wechat.DefaultWechatBaseURL, "3"); err != nil {
+			if err := wechat.LoginFlow(config.RuntimeDir, config.BaseURL, config.LoginBotType); err != nil {
 				fmt.Printf("[error] 扫码登录中止: %v\n", err)
 				os.Exit(1)
 			}
@@ -36,12 +58,26 @@ var startCmd = &cobra.Command{
 			}
 		}
 
+		allowedUsersResolved, err := finalAllowedUsers(config.AllowedUsers, config.RequireAllowlist, acc.UserID)
+		if err != nil {
+			fmt.Printf("[error] 启动配置无效: %v\n", err)
+			os.Exit(1)
+		}
+
 		if daemon {
-			exe, _ := os.Executable()
-			startArgs := []string{"start"} // start without -d to run in foreground in child
+			exe, err := os.Executable()
+			if err != nil {
+				fmt.Printf("[error] 无法定位当前可执行文件: %v\n", err)
+				os.Exit(1)
+			}
+
+			startArgs := filterDaemonArgs(os.Args[1:])
+			if len(startArgs) == 0 {
+				startArgs = []string{"start"}
+			}
 			c := exec.Command(exe, startArgs...)
-			
-			logFile, err := os.OpenFile(filepath.Join(runtimeDir, "service.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+
+			logFile, err := os.OpenFile(logFilePath(config.RuntimeDir), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
 			if err != nil {
 				fmt.Printf("[error] 无法打开日志文件: %v\n", err)
 				os.Exit(1)
@@ -51,45 +87,56 @@ var startCmd = &cobra.Command{
 
 			err = c.Start()
 			if err != nil {
+				_ = logFile.Close()
 				fmt.Printf("[error] 无法启动后台进程: %v\n", err)
 				os.Exit(1)
 			}
+			_ = logFile.Close()
 
-			pidFile := filepath.Join(runtimeDir, "wechat-codex.pid")
-			os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", c.Process.Pid)), 0644)
+			if err := os.WriteFile(pidFilePath(config.RuntimeDir), []byte(fmt.Sprintf("%d", c.Process.Pid)), 0o644); err != nil {
+				fmt.Printf("[error] 无法写入 PID 文件: %v\n", err)
+				os.Exit(1)
+			}
+
+			time.Sleep(2 * time.Second)
+			if !processExists(c.Process.Pid) {
+				_ = os.Remove(pidFilePath(config.RuntimeDir))
+				fmt.Println("[error] 后台进程启动后立即退出，请检查日志：")
+				fmt.Println(logFilePath(config.RuntimeDir))
+				os.Exit(1)
+			}
+
 			fmt.Printf("[ok] 服务已在后台启动，PID: %d\n", c.Process.Pid)
-			os.Exit(0)
+			fmt.Printf("[ok] 日志: %s\n", logFilePath(config.RuntimeDir))
+			return
 		}
 
 		fmt.Println("[info] Starting WeChat webhook polling service in foreground...")
-		client := wechat.NewClient(acc.BaseURL, acc.Token)
-		
-		sessionsRoot := sessionsDir
-		if sessionsRoot == "" {
-			sessionsRoot = "~/.codex/sessions"
+		baseURL := acc.BaseURL
+		if baseURL == "" {
+			baseURL = config.BaseURL
 		}
-		sessions := wechat.NewSessionStore(sessionsRoot)
-		
-		botState := wechat.NewBotState(runtimeDir)
-		codexRunner := wechat.NewCodexRunner(codexBin)
-		
-		var allowed []string
-		if allowedUsers != "" {
-			allowed = strings.Split(allowedUsers, ",")
-		}
-		
-		cwd, _ := os.Getwd()
-		
+		client := wechat.NewClient(baseURL, acc.Token)
+
+		sessions := wechat.NewSessionStore(config.SessionsRoot)
+
+		botState := wechat.NewBotState(config.RuntimeDir)
+		codexRunner := wechat.NewCodexRunner(config.CodexBin)
+		codexRunner.SandboxMode = config.SandboxMode
+		codexRunner.ApprovalPolicy = config.ApprovalPolicy
+		codexRunner.DangerousBypassLevel = config.DangerousBypassLevel
+		codexRunner.IdleTimeout = config.IdleTimeout
+
 		service := wechat.NewCodexService(
 			client,
 			store,
 			sessions,
 			botState,
 			codexRunner,
-			cwd,
-			allowed,
-			30,
-			true,
+			config.DefaultCwd,
+			allowedUsersResolved,
+			config.PollTimeoutSec,
+			config.SendTyping,
 		)
 		service.RunForever()
 	},

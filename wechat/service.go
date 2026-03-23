@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,11 +12,11 @@ import (
 )
 
 type CodexService struct {
-	client           *Client
+	client           APIClient
 	store            *AccountStore
 	sessions         *SessionStore
 	state            *BotState
-	codex            *CodexRunner
+	codex            PromptRunner
 	defaultCwd       string
 	allowedUserIDs   map[string]bool
 	pollTimeoutSec   int
@@ -26,11 +27,11 @@ type CodexService struct {
 }
 
 func NewCodexService(
-	client *Client,
+	client APIClient,
 	store *AccountStore,
 	sessions *SessionStore,
 	state *BotState,
-	codex *CodexRunner,
+	codex PromptRunner,
 	defaultCwd string,
 	allowedUserIDs []string,
 	pollTimeoutSec int,
@@ -112,7 +113,9 @@ func extractText(itemList interface{}) string {
 func (s *CodexService) sendText(toUserID, contextToken, text string) {
 	chunks := s.chunkText(text, 3500)
 	for _, chunk := range chunks {
-		s.client.SendText(toUserID, contextToken, chunk)
+		if _, err := s.client.SendText(toUserID, contextToken, chunk); err != nil {
+			log.Printf("[warn] wechat sendmessage failed: %v\n", err)
+		}
 	}
 }
 
@@ -452,7 +455,12 @@ func (s *CodexService) handleNew(actorID, contextToken, arg string) {
 	}
 
 	if cwdRaw != "" {
-		targetCwd = cwdRaw
+		resolvedCwd, err := resolveExistingDir(cwdRaw)
+		if err != nil {
+			s.sendText(actorID, contextToken, err.Error())
+			return
+		}
+		targetCwd = resolvedCwd
 	}
 
 	s.state.ClearActiveSession(actorID, targetCwd)
@@ -464,6 +472,9 @@ func (s *CodexService) runPrompt(actorID, contextToken, prompt string) {
 	activeID, activeCwd := s.state.GetActive(actorID)
 	cwd := activeCwd
 	if cwd == "" {
+		cwd = s.defaultCwd
+	}
+	if !dirExists(cwd) {
 		cwd = s.defaultCwd
 	}
 
@@ -494,17 +505,103 @@ func (s *CodexService) runPrompt(actorID, contextToken, prompt string) {
 			s.runningPrompts.Finish(actorID, activeID)
 		}()
 
-		// Real prompt connection:
 		res, err := s.codex.RunPrompt(context.Background(), prompt, cwd, activeID, nil)
 		if err != nil {
-			s.sendText(actorID, contextToken, fmt.Sprintf("调用 Codex 时出现异常: %v\nstderr:%s", err, res.StderrText))
+			stderrText := ""
+			if res != nil {
+				stderrText = res.StderrText
+			}
+			message := fmt.Sprintf("调用 Codex 时出现异常: %v", err)
+			if stderrText != "" {
+				message += fmt.Sprintf("\n\nstderr:\n%s", tailText(stderrText, 1200))
+			}
+			s.sendText(actorID, contextToken, message)
 			return
 		}
 
-		if res.ThreadID != "" && activeID == "" {
-			s.state.SetActiveSession(actorID, res.ThreadID, cwd)
+		if res == nil {
+			s.sendText(actorID, contextToken, "Codex 没有返回可展示内容。")
+			return
 		}
 
-		s.sendText(actorID, contextToken, res.AgentText)
+		sessionUpdated := false
+		if res.ThreadID != "" {
+			sessionUpdated = s.state.UpdateActiveSessionIfUnchanged(actorID, activeID, res.ThreadID, cwd)
+		}
+
+		if res.ReturnCode != 0 {
+			message := fmt.Sprintf("Codex 执行失败 (exit=%d)\n%s", res.ReturnCode, res.AgentText)
+			if res.StderrText != "" {
+				message += fmt.Sprintf("\n\nstderr:\n%s", tailText(res.StderrText, 1200))
+			}
+			s.sendText(actorID, contextToken, message)
+			return
+		}
+
+		answer := strings.TrimSpace(res.AgentText)
+		if answer == "" {
+			answer = "Codex 没有返回可展示内容。"
+		}
+
+		if res.ThreadID != "" && !sessionUpdated {
+			currentActiveID, _ := s.state.GetActive(actorID)
+			if currentActiveID != res.ThreadID {
+				note := "当前活动线程未变；这是后台线程的回复。"
+				if activeID == "" {
+					note = "新线程已创建，但你已经切到别的线程，当前活动线程未变。"
+				}
+				answer = note + "\n\n" + answer
+			}
+		}
+
+		s.sendText(actorID, contextToken, answer)
 	}()
+}
+
+func expandUserPath(raw string) string {
+	value := strings.TrimSpace(raw)
+	if strings.HasPrefix(value, "~/") {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return filepath.Join(home, value[2:])
+		}
+	}
+	if value == "~" {
+		home, err := os.UserHomeDir()
+		if err == nil {
+			return home
+		}
+	}
+	return value
+}
+
+func resolveExistingDir(raw string) (string, error) {
+	target := expandUserPath(raw)
+	if target == "" {
+		return "", fmt.Errorf("cwd 不存在或不是目录: %s", strings.TrimSpace(raw))
+	}
+	if abs, err := filepath.Abs(target); err == nil {
+		target = abs
+	}
+	target = filepath.Clean(target)
+
+	info, err := os.Stat(target)
+	if err != nil || !info.IsDir() {
+		return "", fmt.Errorf("cwd 不存在或不是目录: %s", target)
+	}
+	return target, nil
+}
+
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+func tailText(text string, limit int) string {
+	value := strings.TrimSpace(text)
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[len(runes)-limit:])
 }

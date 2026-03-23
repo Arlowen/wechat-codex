@@ -47,12 +47,12 @@ func (s *BotState) load() {
 	}
 }
 
-func (s *BotState) save() {
+func (s *BotState) saveLocked() {
 	content, _ := json.MarshalIndent(s.data, "", "  ")
 	os.WriteFile(s.path, content, 0644)
 }
 
-func (s *BotState) getUser(userID string) *UserState {
+func (s *BotState) getUserLocked(userID string) *UserState {
 	if u, ok := s.data.Users[userID]; ok {
 		return u
 	}
@@ -61,59 +61,88 @@ func (s *BotState) getUser(userID string) *UserState {
 	return u
 }
 
+func (s *BotState) getUserRead(userID string) *UserState {
+	if s.data.Users == nil {
+		return nil
+	}
+	return s.data.Users[userID]
+}
+
 func (s *BotState) SetActiveSession(userID, sessionID, cwd string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	u := s.getUser(userID)
+	u := s.getUserLocked(userID)
 	u.ActiveSessionID = sessionID
 	u.ActiveCwd = cwd
-	s.save()
+	s.saveLocked()
 }
 
 func (s *BotState) ClearActiveSession(userID, cwd string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	u := s.getUser(userID)
+	u := s.getUserLocked(userID)
 	u.ActiveSessionID = ""
 	u.ActiveCwd = cwd
-	s.save()
+	s.saveLocked()
 }
 
 func (s *BotState) GetActive(userID string) (string, string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	u := s.getUser(userID)
+	u := s.getUserRead(userID)
+	if u == nil {
+		return "", ""
+	}
 	return u.ActiveSessionID, u.ActiveCwd
 }
 
 func (s *BotState) SetLastSessionIDs(userID string, ids []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	u := s.getUser(userID)
-	u.LastSessionIDs = ids
-	s.save()
+	u := s.getUserLocked(userID)
+	u.LastSessionIDs = append([]string(nil), ids...)
+	s.saveLocked()
 }
 
 func (s *BotState) GetLastSessionIDs(userID string) []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	u := s.getUser(userID)
-	return u.LastSessionIDs
+	u := s.getUserRead(userID)
+	if u == nil {
+		return nil
+	}
+	return append([]string(nil), u.LastSessionIDs...)
 }
 
 func (s *BotState) SetPendingSessionPick(userID string, enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	u := s.getUser(userID)
+	u := s.getUserLocked(userID)
 	u.PendingSessionPick = enabled
-	s.save()
+	s.saveLocked()
 }
 
 func (s *BotState) IsPendingSessionPick(userID string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	u := s.getUser(userID)
+	u := s.getUserRead(userID)
+	if u == nil {
+		return false
+	}
 	return u.PendingSessionPick
+}
+
+func (s *BotState) UpdateActiveSessionIfUnchanged(userID, expectedSessionID, nextSessionID, cwd string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.getUserLocked(userID)
+	if u.ActiveSessionID != expectedSessionID {
+		return false
+	}
+	u.ActiveSessionID = nextSessionID
+	u.ActiveCwd = cwd
+	s.saveLocked()
+	return true
 }
 
 type RunningPromptRegistry struct {

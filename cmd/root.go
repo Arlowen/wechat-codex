@@ -21,8 +21,3 @@ func Execute() {
 		os.Exit(1)
 	}
 }
-
-func getRuntimeDir() string {
-	cwd, _ := os.Getwd()
-	return cwd + "/.runtime/wechat"
-}

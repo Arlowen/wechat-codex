@@ -11,7 +11,7 @@ const (
 )
 
 type TypingStatus struct {
-	api          *Client
+	api          APIClient
 	userID       string
 	contextToken string
 	interval     time.Duration
@@ -22,7 +22,7 @@ type TypingStatus struct {
 	running      bool
 }
 
-func NewTypingStatus(api *Client, userID, contextToken string) *TypingStatus {
+func NewTypingStatus(api APIClient, userID, contextToken string) *TypingStatus {
 	return &TypingStatus{
 		api:          api,
 		userID:       userID,

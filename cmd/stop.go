@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
-	"strconv"
 	"syscall"
+
+	"wechat-codex/wechat"
 
 	"github.com/spf13/cobra"
 )
@@ -14,18 +14,19 @@ var stopCmd = &cobra.Command{
 	Use:   "stop",
 	Short: "Stop the background polling service",
 	Run: func(cmd *cobra.Command, args []string) {
-		runtimeDir := getRuntimeDir()
-		pidFile := filepath.Join(runtimeDir, "wechat-codex.pid")
-
-		data, err := os.ReadFile(pidFile)
+		runtimeDir, err := getRuntimeDir()
 		if err != nil {
-			fmt.Println("[info] 服务未运行 (找不到 PID 文件)")
+			fmt.Printf("[error] 无法确定 runtime 目录: %v\n", err)
 			return
 		}
 
-		pid, err := strconv.Atoi(string(data))
+		pid, running, err := liveServicePID(runtimeDir, 0)
 		if err != nil {
-			fmt.Println("[info] PID 文件内容无效")
+			fmt.Printf("[error] 无法检查服务状态: %v\n", err)
+			return
+		}
+		if !running {
+			fmt.Println("[info] 服务未运行")
 			return
 		}
 
@@ -39,7 +40,13 @@ var stopCmd = &cobra.Command{
 			}
 		}
 
-		os.Remove(pidFile)
+		_ = os.Remove(pidFilePath(runtimeDir))
+
+		accountStore := wechat.NewAccountStore(runtimeDir)
+		account, err := accountStore.LoadAccount()
+		if err == nil && account.Token != "" {
+			fmt.Println("[ok] 微信登录凭证仍保留")
+		}
 	},
 }
 

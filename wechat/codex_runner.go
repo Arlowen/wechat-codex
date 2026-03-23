@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -31,6 +33,10 @@ type RunResult struct {
 	AgentText  string
 	StderrText string
 	ReturnCode int
+}
+
+type PromptRunner interface {
+	RunPrompt(ctx context.Context, prompt, cwd string, sessionID string, onUpdate func(string)) (*RunResult, error)
 }
 
 func extractTextFragment(node interface{}) string {
@@ -107,7 +113,15 @@ func (r *CodexRunner) RunPrompt(ctx context.Context, prompt, cwd string, session
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		returnCode := 1
+		var execErr *exec.Error
+		if errors.As(err, &execErr) || errors.Is(err, exec.ErrNotFound) || os.IsNotExist(err) {
+			returnCode = 127
+		}
+		return &RunResult{
+			StderrText: err.Error(),
+			ReturnCode: returnCode,
+		}, err
 	}
 
 	var stderrBuilder strings.Builder
@@ -288,6 +302,8 @@ func (r *CodexRunner) RunPrompt(ctx context.Context, prompt, cwd string, session
 	returnCode := 0
 	if exitError, ok := err.(*exec.ExitError); ok {
 		returnCode = exitError.ExitCode()
+	} else if err != nil {
+		returnCode = 1
 	}
 
 	if currentAgentText != "" {

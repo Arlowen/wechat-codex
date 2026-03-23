@@ -2,10 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"strconv"
-	"syscall"
+	"wechat-codex/wechat"
 
 	"github.com/spf13/cobra"
 )
@@ -14,32 +11,30 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Check the status of the background polling service",
 	Run: func(cmd *cobra.Command, args []string) {
-		runtimeDir := getRuntimeDir()
-		pidFile := filepath.Join(runtimeDir, "wechat-codex.pid")
-
-		data, err := os.ReadFile(pidFile)
+		runtimeDir, err := getRuntimeDir()
 		if err != nil {
-			fmt.Println("[info] 服务未运行 (找不到 PID 文件)")
+			fmt.Printf("[error] 无法确定 runtime 目录: %v\n", err)
 			return
 		}
 
-		pid, err := strconv.Atoi(string(data))
+		pid, running, err := liveServicePID(runtimeDir, 0)
 		if err != nil {
-			fmt.Println("[info] PID 文件内容无效，服务可能未运行")
+			fmt.Printf("[error] 无法检查服务状态: %v\n", err)
 			return
 		}
 
-		process, err := os.FindProcess(pid)
-		if err != nil {
-			fmt.Println("[info] 服务未运行")
-			return
-		}
-
-		err = process.Signal(syscall.Signal(0))
-		if err == nil {
+		if running {
 			fmt.Printf("[ok] 服务正在后台运行，PID: %d\n", pid)
 		} else {
-			fmt.Println("[info] 服务未运行 (进程已退出)")
+			fmt.Println("[info] 服务未运行")
+		}
+
+		accountStore := wechat.NewAccountStore(runtimeDir)
+		account, err := accountStore.LoadAccount()
+		if err == nil && account.Token != "" {
+			fmt.Println("[ok] 已检测到微信登录凭证")
+		} else {
+			fmt.Println("[info] 尚未检测到微信登录凭证")
 		}
 	},
 }
