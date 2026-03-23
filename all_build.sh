@@ -5,6 +5,7 @@ set -e
 cd "$(dirname "$0")"
 
 echo "[info] Building wechat-codex for macOS..."
-go build -o wechat-codex .
+mkdir -p bin
+go build -o bin/wechat-codex .
 
-echo "[ok] Build successful! You can run it with ./wechat-codex"
+echo "[ok] Build successful! You can run it with bin/wechat-codex"

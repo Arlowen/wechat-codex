@@ -22,7 +22,7 @@
 或者手动使用 Go 命令编译：
 
 ```bash
-go build -o wechat-codex .
+go build -o bin/wechat-codex .
 ```
 
 ## 使用指南
@@ -30,7 +30,7 @@ go build -o wechat-codex .
 ### 1. 扫码登录 (初次使用必执行)
 在使用机器人服务前，必须先获取凭证（Token）。
 ```bash
-./wechat-codex login
+bin/wechat-codex login
 ```
 执行后终端会渲染一个二维码，请用拟作为机器人的微信账号扫描二维码，并在手机端点击确认授权。成功后，凭证会自动保存在本地。
 
@@ -39,14 +39,14 @@ go build -o wechat-codex .
 
 - **前台运行**（可直接看到实时日志，按 `Ctrl+C` 退出）：
   ```bash
-  ./wechat-codex start
+  bin/wechat-codex start
   ```
 
 - **后台运行**（推荐）：
   ```bash
-  ./wechat-codex start -d
+  bin/wechat-codex start -d
   # 或
-  ./wechat-codex start --daemon
+  bin/wechat-codex start --daemon
   ```
   后台运行模式下，日志会自动输出到 `.runtime/wechat/service.log`。
 
@@ -55,10 +55,10 @@ go build -o wechat-codex .
 
 - **查看服务状态**：
   ```bash
-  ./wechat-codex status
+  bin/wechat-codex status
   ```
   
 - **停止后台服务**：
   ```bash
-  ./wechat-codex stop
+  bin/wechat-codex stop
   ```

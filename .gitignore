@@ -1,4 +1,4 @@
 .runtime/
-wechat-codex
+bin/
 *.pid
 service.log
