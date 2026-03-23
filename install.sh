@@ -7,6 +7,7 @@ VERSION="${WECHAT_CODEX_VERSION:-latest}"
 BASE_URL="${WECHAT_CODEX_BASE_URL:-}"
 BIN_NAME="wechat-codex"
 INSTALL_DIR="${INSTALL_DIR:-}"
+DEFAULT_INSTALL_DIR="$HOME/.wechat-codex"
 TMP_DIR=""
 
 log() {
@@ -51,17 +52,12 @@ choose_install_dir() {
     return
   fi
 
-  if [ -d "/usr/local/bin" ] && [ -w "/usr/local/bin" ]; then
-    printf '/usr/local/bin\n'
+  if mkdir -p "$DEFAULT_INSTALL_DIR" 2>/dev/null; then
+    printf '%s\n' "$DEFAULT_INSTALL_DIR"
     return
   fi
 
-  if mkdir -p "$HOME/.local/bin" 2>/dev/null; then
-    printf '%s\n' "$HOME/.local/bin"
-    return
-  fi
-
-  fail "no writable install directory found, please set INSTALL_DIR=/path/to/bin"
+  fail "cannot create install directory: $DEFAULT_INSTALL_DIR, please set INSTALL_DIR=/path/to/bin"
 }
 
 download_base_url() {

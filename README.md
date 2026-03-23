@@ -21,6 +21,12 @@
 curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/install.sh | bash
 ```
 
+默认会安装到：
+
+```bash
+~/.wechat-codex/wechat-codex
+```
+
 安装指定版本：
 
 ```bash
@@ -36,7 +42,13 @@ curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/install.s
 安装完成后可执行：
 
 ```bash
-wechat-codex version
+~/.wechat-codex/wechat-codex version
+```
+
+如果希望直接使用 `wechat-codex` 命令，请把目录加入 `PATH`：
+
+```bash
+export PATH="$HOME/.wechat-codex:$PATH"
 ```
 
 ## 🧹 一键卸载

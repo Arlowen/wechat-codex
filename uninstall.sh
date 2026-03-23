@@ -4,6 +4,7 @@ set -euo pipefail
 
 BIN_NAME="wechat-codex"
 INSTALL_DIR="${INSTALL_DIR:-}"
+DEFAULT_INSTALL_DIR="$HOME/.wechat-codex"
 PURGE_DATA="${WECHAT_CODEX_PURGE_DATA:-0}"
 RUNTIME_DIR="${WECHAT_CODEX_RUNTIME_DIR:-$HOME/.wechat-codex}"
 
@@ -28,7 +29,7 @@ resolve_binary_path() {
     return
   fi
 
-  for candidate in "/usr/local/bin/$BIN_NAME" "$HOME/.local/bin/$BIN_NAME"; do
+  for candidate in "$DEFAULT_INSTALL_DIR/$BIN_NAME" "/usr/local/bin/$BIN_NAME" "$HOME/.local/bin/$BIN_NAME"; do
     if [ -f "$candidate" ]; then
       printf '%s\n' "$candidate"
       return
