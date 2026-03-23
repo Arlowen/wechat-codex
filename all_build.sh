@@ -12,16 +12,17 @@ _log() {
   local now
   now="$(date '+%Y-%m-%d %H:%M:%S')"
 
+  local prefix="[$level]"
   if [[ -t 1 ]]; then
-    printf '\033[%sm[%s]\033[0m %s %s\n' "$color" "$level" "$now" "$*"
+    printf '\033[%sm%-10s\033[0m%s %s\n' "$color" "$prefix" "$now" "$*"
   else
-    printf '[%s] %s %s\n' "$level" "$now" "$*"
+    printf '%-10s%s %s\n' "$prefix" "$now" "$*"
   fi
 }
 
-log_info()    { _log "INFO" "34" "$@"; }
-log_success() { _log "DONE" "32" "$@"; }
-log_error()   { _log "FAIL" "31" "$@" >&2; }
+log_info()    { _log "INFO"    "34" "$@"; }
+log_success() { _log "SUCCESS" "32" "$@"; }
+log_error()   { _log "ERROR"   "31" "$@" >&2; }
 
 print_run_summary() {
   local message="$1"
