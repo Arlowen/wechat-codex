@@ -10,13 +10,18 @@ _log() {
   shift 2
 
   local now
-  now="$(date '+%Y-%m-%d %H:%M:%S')"
-
-  local prefix="[$level]"
-  if [[ -t 1 ]]; then
-    printf '\033[%sm%-10s\033[0m%s %s\n' "$color" "$prefix" "$now" "$*"
+  if command -v gdate >/dev/null 2>&1; then
+    now="$(gdate '+%Y-%m-%d %H:%M:%S.%3N')"
+  elif date --version >/dev/null 2>&1; then
+    now="$(date '+%Y-%m-%d %H:%M:%S.%3N')"
   else
-    printf '%-10s%s %s\n' "$prefix" "$now" "$*"
+    now="$(date '+%Y-%m-%d %H:%M:%S.000')"
+  fi
+
+  if [[ -t 1 ]]; then
+    printf '\033[90m%s\033[0m \033[%sm%7s\033[0m %s\n' "$now" "$color" "$level" "$*"
+  else
+    printf '%s %7s %s\n' "$now" "$level" "$*"
   fi
 }
 
