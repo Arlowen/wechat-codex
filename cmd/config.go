@@ -209,7 +209,7 @@ func liveServicePID(runtimeDir string, currentPID int) (int, bool, error) {
 	}
 
 	if pid == currentPID {
-		return pid, true, nil
+		return pid, false, nil
 	}
 	if processExists(pid) {
 		return pid, true, nil

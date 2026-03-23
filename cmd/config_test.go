@@ -76,6 +76,25 @@ func TestLiveServicePIDDetectsRunningProcess(t *testing.T) {
 	}
 }
 
+func TestLiveServicePIDIgnoresCurrentProcess(t *testing.T) {
+	runtimeDir := t.TempDir()
+	pid := os.Getpid()
+	if err := os.WriteFile(pidFilePath(runtimeDir), []byte(strconv.Itoa(pid)), 0o644); err != nil {
+		t.Fatalf("write pid file: %v", err)
+	}
+
+	gotPID, running, err := liveServicePID(runtimeDir, pid)
+	if err != nil {
+		t.Fatalf("liveServicePID returned error: %v", err)
+	}
+	if running {
+		t.Fatal("expected liveServicePID to ignore the current process pid")
+	}
+	if gotPID != pid {
+		t.Fatalf("unexpected pid: got %d want %d", gotPID, pid)
+	}
+}
+
 func TestGetRuntimeDirHonorsEnvironment(t *testing.T) {
 	t.Setenv("WECHAT_RUNTIME_DIR", filepath.Join(t.TempDir(), "runtime", "wechat"))
 
