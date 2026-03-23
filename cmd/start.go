@@ -24,8 +24,16 @@ var startCmd = &cobra.Command{
 		store := wechat.NewAccountStore(runtimeDir)
 		acc, err := store.LoadAccount()
 		if err != nil || acc.Token == "" {
-			fmt.Println("[error] 未找到登录凭证，请先执行 wechat-codex login")
-			os.Exit(1)
+			fmt.Println("\n[info] 当前为第一次启动，需要先扫描二维码绑定微信：")
+			if err := wechat.LoginFlow(runtimeDir, wechat.DefaultWechatBaseURL, "3"); err != nil {
+				fmt.Printf("[error] 扫码登录中止: %v\n", err)
+				os.Exit(1)
+			}
+			acc, err = store.LoadAccount()
+			if err != nil || acc.Token == "" {
+				fmt.Println("[error] 未能正确获取登录凭证")
+				os.Exit(1)
+			}
 		}
 
 		if daemon {
