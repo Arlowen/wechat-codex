@@ -5,7 +5,7 @@ set -euo pipefail
 BIN_NAME="wechat-codex"
 INSTALL_DIR="${INSTALL_DIR:-}"
 DEFAULT_INSTALL_DIR="$HOME/.wechat-codex"
-PURGE_DATA="${WECHAT_CODEX_PURGE_DATA:-0}"
+PURGE_DATA="${WECHAT_CODEX_PURGE_DATA:-1}"
 RUNTIME_DIR="${WECHAT_CODEX_RUNTIME_DIR:-$HOME/.wechat-codex}"
 
 log() {
@@ -61,12 +61,13 @@ main() {
     log "removed $binary_path"
   fi
 
-  if [ "$PURGE_DATA" = "1" ]; then
-    rm -rf "$RUNTIME_DIR"
-    log "removed runtime data at $RUNTIME_DIR"
-  else
+  if [ "$PURGE_DATA" = "0" ]; then
     log "runtime data kept at $RUNTIME_DIR"
     log "set WECHAT_CODEX_PURGE_DATA=1 to remove runtime data as well"
+  else
+    rm -rf "$RUNTIME_DIR"
+    log "removed runtime data at $RUNTIME_DIR"
+    log "set WECHAT_CODEX_PURGE_DATA=0 to keep runtime data"
   fi
 }
 
