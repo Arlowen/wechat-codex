@@ -13,9 +13,9 @@ _log() {
   now="$(date '+%Y-%m-%d %H:%M:%S')"
 
   if [[ -t 1 ]]; then
-    printf '\033[%sm[%s]\033[0m %s %s\n' "$color" "$level" "$now" "$*"
+    printf '\033[%sm[%-7s]\033[0m %s %s\n' "$color" "$level" "$now" "$*"
   else
-    printf '[%s] %s %s\n' "$level" "$now" "$*"
+    printf '[%-7s] %s %s\n' "$level" "$now" "$*"
   fi
 }
 
