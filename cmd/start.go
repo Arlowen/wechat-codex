@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"time"
+	"wechat-codex/output"
 	"wechat-codex/wechat"
 
 	"github.com/spf13/cobra"
@@ -21,53 +22,53 @@ var startCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		config, err := resolveStartConfig(cmd)
 		if err != nil {
-			fmt.Printf("[error] 启动配置无效: %v\n", err)
+			output.Errorf("启动配置无效: %v", err)
 			os.Exit(1)
 		}
 
 		if !parseBoolEnv(os.Getenv("WECHAT_ENABLED"), true) {
-			fmt.Println("[info] 微信服务已被 WECHAT_ENABLED=0 显式关闭")
+			output.Infof("微信服务已被 WECHAT_ENABLED=0 显式关闭")
 			return
 		}
 
 		if err := os.MkdirAll(config.RuntimeDir, 0o755); err != nil {
-			fmt.Printf("[error] 无法创建 runtime 目录: %v\n", err)
+			output.Errorf("无法创建 runtime 目录: %v", err)
 			os.Exit(1)
 		}
 
 		if pid, running, err := liveServicePID(config.RuntimeDir, os.Getpid()); err != nil {
-			fmt.Printf("[error] 无法检查现有服务状态: %v\n", err)
+			output.Errorf("无法检查现有服务状态: %v", err)
 			os.Exit(1)
 		} else if running {
-			fmt.Printf("[info] 服务已运行，PID: %d\n", pid)
+			output.Infof("服务已运行，PID: %d", pid)
 			return
 		}
 
 		store := wechat.NewAccountStore(config.RuntimeDir)
 		acc, err := store.LoadAccount()
 		if err != nil || acc.Token == "" {
-			fmt.Println("\n[info] 当前为第一次启动，需要先扫描二维码绑定微信：")
+			output.Infof("当前为第一次启动，需要先扫描二维码绑定微信")
 			if err := wechat.LoginFlow(config.RuntimeDir, config.BaseURL, config.LoginBotType); err != nil {
-				fmt.Printf("[error] 扫码登录中止: %v\n", err)
+				output.Errorf("扫码登录中止: %v", err)
 				os.Exit(1)
 			}
 			acc, err = store.LoadAccount()
 			if err != nil || acc.Token == "" {
-				fmt.Println("[error] 未能正确获取登录凭证")
+				output.Errorf("未能正确获取登录凭证")
 				os.Exit(1)
 			}
 		}
 
 		allowedUsersResolved, err := finalAllowedUsers(config.AllowedUsers, config.RequireAllowlist, acc.UserID)
 		if err != nil {
-			fmt.Printf("[error] 启动配置无效: %v\n", err)
+			output.Errorf("启动配置无效: %v", err)
 			os.Exit(1)
 		}
 
 		if daemon {
 			exe, err := os.Executable()
 			if err != nil {
-				fmt.Printf("[error] 无法定位当前可执行文件: %v\n", err)
+				output.Errorf("无法定位当前可执行文件: %v", err)
 				os.Exit(1)
 			}
 
@@ -79,7 +80,7 @@ var startCmd = &cobra.Command{
 
 			logFile, err := os.OpenFile(logFilePath(config.RuntimeDir), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
 			if err != nil {
-				fmt.Printf("[error] 无法打开日志文件: %v\n", err)
+				output.Errorf("无法打开日志文件: %v", err)
 				os.Exit(1)
 			}
 			c.Stdout = logFile
@@ -88,30 +89,30 @@ var startCmd = &cobra.Command{
 			err = c.Start()
 			if err != nil {
 				_ = logFile.Close()
-				fmt.Printf("[error] 无法启动后台进程: %v\n", err)
+				output.Errorf("无法启动后台进程: %v", err)
 				os.Exit(1)
 			}
 			_ = logFile.Close()
 
 			if err := os.WriteFile(pidFilePath(config.RuntimeDir), []byte(fmt.Sprintf("%d", c.Process.Pid)), 0o644); err != nil {
-				fmt.Printf("[error] 无法写入 PID 文件: %v\n", err)
+				output.Errorf("无法写入 PID 文件: %v", err)
 				os.Exit(1)
 			}
 
 			time.Sleep(2 * time.Second)
 			if !processExists(c.Process.Pid) {
 				_ = os.Remove(pidFilePath(config.RuntimeDir))
-				fmt.Println("[error] 后台进程启动后立即退出，请检查日志：")
-				fmt.Println(logFilePath(config.RuntimeDir))
+				output.Errorf("后台进程启动后立即退出，请检查日志")
+				output.Infof("日志: %s", logFilePath(config.RuntimeDir))
 				os.Exit(1)
 			}
 
-			fmt.Printf("[ok] 服务已在后台启动，PID: %d\n", c.Process.Pid)
-			fmt.Printf("[ok] 日志: %s\n", logFilePath(config.RuntimeDir))
+			output.OKf("服务已在后台启动，PID: %d", c.Process.Pid)
+			output.OKf("日志: %s", logFilePath(config.RuntimeDir))
 			return
 		}
 
-		fmt.Println("[info] Starting WeChat webhook polling service in foreground...")
+		output.Infof("Starting WeChat webhook polling service in foreground...")
 		baseURL := acc.BaseURL
 		if baseURL == "" {
 			baseURL = config.BaseURL

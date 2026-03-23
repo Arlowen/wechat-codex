@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	"fmt"
+	"wechat-codex/output"
 	"wechat-codex/wechat"
 
 	"github.com/spf13/cobra"
@@ -13,28 +13,28 @@ var statusCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		runtimeDir, err := getRuntimeDir()
 		if err != nil {
-			fmt.Printf("[error] 无法确定 runtime 目录: %v\n", err)
+			output.Errorf("无法确定 runtime 目录: %v", err)
 			return
 		}
 
 		pid, running, err := liveServicePID(runtimeDir, 0)
 		if err != nil {
-			fmt.Printf("[error] 无法检查服务状态: %v\n", err)
+			output.Errorf("无法检查服务状态: %v", err)
 			return
 		}
 
 		if running {
-			fmt.Printf("[ok] 服务正在后台运行，PID: %d\n", pid)
+			output.OKf("服务正在后台运行，PID: %d", pid)
 		} else {
-			fmt.Println("[info] 服务未运行")
+			output.Infof("服务未运行")
 		}
 
 		accountStore := wechat.NewAccountStore(runtimeDir)
 		account, err := accountStore.LoadAccount()
 		if err == nil && account.Token != "" {
-			fmt.Println("[ok] 已检测到微信登录凭证")
+			output.OKf("已检测到微信登录凭证")
 		} else {
-			fmt.Println("[info] 尚未检测到微信登录凭证")
+			output.Infof("尚未检测到微信登录凭证")
 		}
 	},
 }

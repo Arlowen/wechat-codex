@@ -131,23 +131,19 @@ func normalizeDirPath(raw string) string {
 	return filepath.Clean(value)
 }
 
-func defaultRuntimeDirFromExecutable(exePath string) string {
-	baseDir := filepath.Dir(exePath)
-	if filepath.Base(baseDir) == "bin" {
-		baseDir = filepath.Dir(baseDir)
+func defaultRuntimeDir() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ".wechat-codex"
 	}
-	return filepath.Join(baseDir, ".runtime", "wechat")
+	return filepath.Join(home, ".wechat-codex")
 }
 
 func getRuntimeDir() (string, error) {
 	if configured := normalizeDirPath(os.Getenv("WECHAT_RUNTIME_DIR")); configured != "" {
 		return configured, nil
 	}
-	exePath, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	return defaultRuntimeDirFromExecutable(exePath), nil
+	return defaultRuntimeDir(), nil
 }
 
 func resolveStringOption(cmd *cobra.Command, flagName, flagValue, envName, defaultValue string) string {

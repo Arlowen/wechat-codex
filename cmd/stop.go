@@ -1,10 +1,10 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 	"syscall"
 
+	"wechat-codex/output"
 	"wechat-codex/wechat"
 
 	"github.com/spf13/cobra"
@@ -16,17 +16,17 @@ var stopCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		runtimeDir, err := getRuntimeDir()
 		if err != nil {
-			fmt.Printf("[error] 无法确定 runtime 目录: %v\n", err)
+			output.Errorf("无法确定 runtime 目录: %v", err)
 			return
 		}
 
 		pid, running, err := liveServicePID(runtimeDir, 0)
 		if err != nil {
-			fmt.Printf("[error] 无法检查服务状态: %v\n", err)
+			output.Errorf("无法检查服务状态: %v", err)
 			return
 		}
 		if !running {
-			fmt.Println("[info] 服务未运行")
+			output.Infof("服务未运行")
 			return
 		}
 
@@ -34,9 +34,9 @@ var stopCmd = &cobra.Command{
 		if err == nil {
 			err = process.Signal(syscall.SIGTERM)
 			if err == nil {
-				fmt.Printf("[ok] 成功发送终止信号给进程 PID: %d\n", pid)
+				output.OKf("成功发送终止信号给进程 PID: %d", pid)
 			} else {
-				fmt.Printf("[warn] 终止进程失败 或者进程已不存在: %v\n", err)
+				output.Warnf("终止进程失败 或者进程已不存在: %v", err)
 			}
 		}
 
@@ -45,7 +45,7 @@ var stopCmd = &cobra.Command{
 		accountStore := wechat.NewAccountStore(runtimeDir)
 		account, err := accountStore.LoadAccount()
 		if err == nil && account.Token != "" {
-			fmt.Println("[ok] 微信登录凭证仍保留")
+			output.OKf("微信登录凭证仍保留")
 		}
 	},
 }

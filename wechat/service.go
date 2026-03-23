@@ -3,12 +3,12 @@ package wechat
 import (
 	"context"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+	"wechat-codex/output"
 )
 
 type CodexService struct {
@@ -58,18 +58,18 @@ func NewCodexService(
 
 func (s *CodexService) RunForever() {
 	buf := s.store.LoadGetUpdatesBuf()
-	log.Println("[info] Starting WeChat webhook polling...")
+	output.Infof("Starting WeChat webhook polling")
 
 	for {
 		resp, err := s.client.GetUpdates(buf, s.pollTimeoutSec)
 		if err != nil {
-			log.Printf("[warn] wechat getupdates error: %v\n", err)
+			output.Warnf("wechat getupdates error: %v", err)
 			time.Sleep(2 * time.Second)
 			continue
 		}
 
 		if errCode, ok := resp["errcode"].(float64); ok && int(errCode) == -14 {
-			log.Println("[warn] WeChat session expired, clearing poll cursor and retrying")
+			output.Warnf("WeChat session expired, clearing poll cursor and retrying")
 			buf = ""
 			s.store.ClearGetUpdatesBuf()
 			time.Sleep(3 * time.Second)
@@ -114,7 +114,7 @@ func (s *CodexService) sendText(toUserID, contextToken, text string) {
 	chunks := s.chunkText(text, 3500)
 	for _, chunk := range chunks {
 		if _, err := s.client.SendText(toUserID, contextToken, chunk); err != nil {
-			log.Printf("[warn] wechat sendmessage failed: %v\n", err)
+			output.Warnf("wechat sendmessage failed: %v", err)
 		}
 	}
 }
@@ -178,7 +178,7 @@ func (s *CodexService) handleMessage(msg map[string]interface{}) {
 		return
 	}
 
-	log.Printf("wechat message received: user_id=%s len=%d\n", fromUserID, len(text))
+	output.Infof("wechat message received: user_id=%s len=%d", fromUserID, len(text))
 
 	if !strings.HasPrefix(text, "/") {
 		if s.tryHandleQuickSessionPick(fromUserID, contextToken, text) {

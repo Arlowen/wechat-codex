@@ -4,16 +4,18 @@ import (
 	"fmt"
 	"time"
 
+	"wechat-codex/output"
+
 	"github.com/skip2/go-qrcode"
 )
 
 func DisplayQRCode(url string) {
-	fmt.Println("[info] 微信登录二维码链接:", url)
+	output.Infof("微信登录二维码链接: %s", url)
 	q, err := qrcode.New(url, qrcode.Low)
 	if err == nil {
 		fmt.Println(q.ToSmallString(false))
 	} else {
-		fmt.Println("[warn] 无法渲染二维码 ASCII，请点击以上链接查看。")
+		output.Warnf("无法渲染二维码 ASCII，请点击以上链接查看")
 	}
 }
 
@@ -33,7 +35,7 @@ func LoginFlow(runtimeDir string, apiBaseURL string, botType string) error {
 		return fmt.Errorf("微信登录未返回二维码信息: %v", startResp)
 	}
 
-	fmt.Println("[info] 请使用微信扫描下面的二维码完成授权：")
+	output.Infof("请使用微信扫描下面的二维码完成授权")
 	DisplayQRCode(qrcodeURL)
 
 	startedAt := time.Now()
@@ -48,7 +50,7 @@ func LoginFlow(runtimeDir string, apiBaseURL string, botType string) error {
 
 		state, _ := statusResp["status"].(string)
 		if state == "scaned" && !scanNotified {
-			fmt.Println("[info] 已扫码，请在手机上确认授权。")
+			output.Infof("已扫码，请在手机上确认授权")
 			scanNotified = true
 		}
 
@@ -75,9 +77,9 @@ func LoginFlow(runtimeDir string, apiBaseURL string, botType string) error {
 				return fmt.Errorf("凭证保存失败: %v", err)
 			}
 
-			fmt.Println("[ok] 微信登录成功，凭证保存至", store.accountPath)
+			output.OKf("微信登录成功，凭证保存至 %s", store.accountPath)
 			if userID != "" {
-				fmt.Printf("[ok] 当前微信账号 user_id: %s\n", userID)
+				output.OKf("当前微信账号 user_id: %s", userID)
 			}
 			return nil
 		}

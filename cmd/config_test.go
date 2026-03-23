@@ -37,30 +37,13 @@ func TestFilterDaemonArgs(t *testing.T) {
 	}
 }
 
-func TestDefaultRuntimeDirFromExecutable(t *testing.T) {
-	tests := []struct {
-		name string
-		exe  string
-		want string
-	}{
-		{
-			name: "binary inside bin dir",
-			exe:  "/tmp/project/bin/wechat-codex",
-			want: "/tmp/project/.runtime/wechat",
-		},
-		{
-			name: "binary next to runtime dir",
-			exe:  "/tmp/project/wechat-codex",
-			want: "/tmp/project/.runtime/wechat",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := defaultRuntimeDirFromExecutable(tc.exe); got != tc.want {
-				t.Fatalf("unexpected runtime dir: got %q want %q", got, tc.want)
-			}
-		})
+func TestDefaultRuntimeDir(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err == nil {
+		want := filepath.Join(home, ".wechat-codex")
+		if got := defaultRuntimeDir(); got != want {
+			t.Fatalf("unexpected runtime dir: got %q want %q", got, want)
+		}
 	}
 }
 
