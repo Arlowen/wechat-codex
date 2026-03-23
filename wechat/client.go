@@ -155,3 +155,21 @@ func (c *Client) SendText(toUserID, contextToken, text string) (string, error) {
 	_, err := c.requestJSON(http.MethodPost, "ilink/bot/sendmessage", nil, payload, true, nil)
 	return clientID, err
 }
+
+func (c *Client) GetConfig(ilinkUserID, contextToken string) (map[string]interface{}, error) {
+	payload := map[string]interface{}{
+		"ilink_user_id": ilinkUserID,
+		"context_token": contextToken,
+	}
+	return c.requestJSON(http.MethodPost, "ilink/bot/getconfig", nil, payload, true, nil)
+}
+
+func (c *Client) SendTyping(ilinkUserID, typingTicket string, status int) error {
+	payload := map[string]interface{}{
+		"ilink_user_id": ilinkUserID,
+		"typing_ticket": typingTicket,
+		"status":        status,
+	}
+	_, err := c.requestJSON(http.MethodPost, "ilink/bot/sendtyping", nil, payload, true, nil)
+	return err
+}

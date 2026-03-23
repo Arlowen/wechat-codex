@@ -5,12 +5,16 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"wechat-codex/wechat"
 
 	"github.com/spf13/cobra"
 )
 
 var daemon bool
+var codexBin string
+var sessionsDir string
+var allowedUsers string
 
 var startCmd = &cobra.Command{
 	Use:   "start",
@@ -51,12 +55,42 @@ var startCmd = &cobra.Command{
 
 		fmt.Println("[info] Starting WeChat webhook polling service in foreground...")
 		client := wechat.NewClient(acc.BaseURL, acc.Token)
-		service := wechat.NewCodexService(client, store)
+		
+		sessionsRoot := sessionsDir
+		if sessionsRoot == "" {
+			sessionsRoot = "~/.cursor-tutor/sessions"
+		}
+		sessions := wechat.NewSessionStore(sessionsRoot)
+		
+		botState := wechat.NewBotState(runtimeDir)
+		codexRunner := wechat.NewCodexRunner(codexBin)
+		
+		var allowed []string
+		if allowedUsers != "" {
+			allowed = strings.Split(allowedUsers, ",")
+		}
+		
+		cwd, _ := os.Getwd()
+		
+		service := wechat.NewCodexService(
+			client,
+			store,
+			sessions,
+			botState,
+			codexRunner,
+			cwd,
+			allowed,
+			30,
+			true,
+		)
 		service.RunForever()
 	},
 }
 
 func init() {
 	startCmd.Flags().BoolVarP(&daemon, "daemon", "d", false, "Run in background as daemon")
+	startCmd.Flags().StringVar(&codexBin, "codex-bin", "codex", "Path to codex binary")
+	startCmd.Flags().StringVar(&sessionsDir, "sessions", "~/.cursor-tutor/sessions", "Path to codex session tracking directory")
+	startCmd.Flags().StringVar(&allowedUsers, "allowed-users", "", "Comma separated list of allowed WeChat user IDs")
 	rootCmd.AddCommand(startCmd)
 }
