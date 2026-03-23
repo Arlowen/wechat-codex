@@ -58,7 +58,7 @@ var startCmd = &cobra.Command{
 		
 		sessionsRoot := sessionsDir
 		if sessionsRoot == "" {
-			sessionsRoot = "~/.cursor-tutor/sessions"
+			sessionsRoot = "~/.codex/sessions"
 		}
 		sessions := wechat.NewSessionStore(sessionsRoot)
 		
@@ -90,7 +90,7 @@ var startCmd = &cobra.Command{
 func init() {
 	startCmd.Flags().BoolVarP(&daemon, "daemon", "d", false, "Run in background as daemon")
 	startCmd.Flags().StringVar(&codexBin, "codex-bin", "codex", "Path to codex binary")
-	startCmd.Flags().StringVar(&sessionsDir, "sessions", "~/.cursor-tutor/sessions", "Path to codex session tracking directory")
+	startCmd.Flags().StringVar(&sessionsDir, "sessions", "~/.codex/sessions", "Path to codex session tracking directory")
 	startCmd.Flags().StringVar(&allowedUsers, "allowed-users", "", "Comma separated list of allowed WeChat user IDs")
 	rootCmd.AddCommand(startCmd)
 }
