@@ -8,12 +8,6 @@
 curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/install.sh | bash
 ```
 
-默认会安装到：
-
-```bash
-~/.wechat-codex/wechat-codex
-```
-
 ## 🧹 一键卸载
 
 ```bash
