@@ -77,9 +77,9 @@ func LoginFlow(runtimeDir string, apiBaseURL string, botType string) error {
 				return fmt.Errorf("凭证保存失败: %v", err)
 			}
 
-			output.OKf("微信登录成功，凭证保存至 %s", store.accountPath)
+			output.Infof("微信登录成功，凭证保存至 %s", store.accountPath)
 			if userID != "" {
-				output.OKf("当前微信账号 user_id: %s", userID)
+				output.Infof("当前微信账号 user_id: %s", userID)
 			}
 			return nil
 		}

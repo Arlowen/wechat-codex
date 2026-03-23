@@ -107,8 +107,8 @@ var startCmd = &cobra.Command{
 				os.Exit(1)
 			}
 
-			output.OKf("服务已在后台启动，PID: %d", c.Process.Pid)
-			output.OKf("日志: %s", logFilePath(config.RuntimeDir))
+			output.Infof("服务已在后台启动，PID: %d", c.Process.Pid)
+			output.Infof("日志: %s", logFilePath(config.RuntimeDir))
 			return
 		}
 

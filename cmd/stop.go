@@ -34,7 +34,7 @@ var stopCmd = &cobra.Command{
 		if err == nil {
 			err = process.Signal(syscall.SIGTERM)
 			if err == nil {
-				output.OKf("成功发送终止信号给进程 PID: %d", pid)
+				output.Infof("成功发送终止信号给进程 PID: %d", pid)
 			} else {
 				output.Warnf("终止进程失败 或者进程已不存在: %v", err)
 			}
@@ -45,7 +45,7 @@ var stopCmd = &cobra.Command{
 		accountStore := wechat.NewAccountStore(runtimeDir)
 		account, err := accountStore.LoadAccount()
 		if err == nil && account.Token != "" {
-			output.OKf("微信登录凭证仍保留")
+			output.Infof("微信登录凭证仍保留")
 		}
 	},
 }

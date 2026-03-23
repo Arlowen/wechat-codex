@@ -24,7 +24,7 @@ var statusCmd = &cobra.Command{
 		}
 
 		if running {
-			output.OKf("服务正在后台运行，PID: %d", pid)
+			output.Infof("服务正在后台运行，PID: %d", pid)
 		} else {
 			output.Infof("服务未运行")
 		}
@@ -32,7 +32,7 @@ var statusCmd = &cobra.Command{
 		accountStore := wechat.NewAccountStore(runtimeDir)
 		account, err := accountStore.LoadAccount()
 		if err == nil && account.Token != "" {
-			output.OKf("已检测到微信登录凭证")
+			output.Infof("已检测到微信登录凭证")
 		} else {
 			output.Infof("尚未检测到微信登录凭证")
 		}
