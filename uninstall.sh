@@ -7,9 +7,15 @@ INSTALL_DIR="${INSTALL_DIR:-}"
 DEFAULT_INSTALL_DIR="$HOME/.wechat-codex"
 PURGE_DATA="${WECHAT_CODEX_PURGE_DATA:-1}"
 RUNTIME_DIR="${WECHAT_CODEX_RUNTIME_DIR:-$HOME/.wechat-codex}"
+LAUNCHER_FILE_NAME=".launcher-path"
 
 log() {
   printf '[uninstall] %s\n' "$*"
+}
+
+launcher_metadata_path() {
+  local install_dir="$1"
+  printf '%s/%s\n' "$install_dir" "$LAUNCHER_FILE_NAME"
 }
 
 resolve_binary_path() {
@@ -50,9 +56,24 @@ maybe_stop_service() {
 }
 
 main() {
-  local binary_path
+  local binary_path install_dir launcher_path metadata_path
 
   binary_path="$(resolve_binary_path)"
+  if [ -n "$binary_path" ]; then
+    install_dir="$(dirname "$binary_path")"
+  else
+    install_dir="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
+  fi
+  metadata_path="$(launcher_metadata_path "$install_dir")"
+
+  if [ -f "$metadata_path" ]; then
+    launcher_path="$(cat "$metadata_path")"
+    if [ -L "$launcher_path" ]; then
+      rm -f "$launcher_path"
+      log "removed launcher $launcher_path"
+    fi
+  fi
+
   if [ -z "$binary_path" ]; then
     log "no installed $BIN_NAME binary found"
   else

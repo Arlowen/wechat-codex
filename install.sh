@@ -9,6 +9,7 @@ BIN_NAME="wechat-codex"
 INSTALL_DIR="${INSTALL_DIR:-}"
 DEFAULT_INSTALL_DIR="$HOME/.wechat-codex"
 TMP_DIR=""
+LAUNCHER_FILE_NAME=".launcher-path"
 
 log() {
   printf '[install] %s\n' "$*"
@@ -27,6 +28,19 @@ cleanup() {
 
 need_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "missing required command: $1"
+}
+
+path_contains_dir() {
+  local dir="$1"
+  case ":$PATH:" in
+    *":$dir:"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+launcher_metadata_path() {
+  local install_dir="$1"
+  printf '%s/%s\n' "$install_dir" "$LAUNCHER_FILE_NAME"
 }
 
 detect_os() {
@@ -58,6 +72,67 @@ choose_install_dir() {
   fi
 
   fail "cannot create install directory: $DEFAULT_INSTALL_DIR, please set INSTALL_DIR=/path/to/bin"
+}
+
+find_launcher_dir() {
+  local install_dir="$1"
+  local dir
+  local preferred_dirs=(
+    "/opt/homebrew/bin"
+    "/usr/local/bin"
+    "$HOME/.local/bin"
+    "$HOME/bin"
+  )
+
+  for dir in "${preferred_dirs[@]}"; do
+    if [ "$dir" != "$install_dir" ] && path_contains_dir "$dir" && [ -d "$dir" ] && [ -w "$dir" ]; then
+      printf '%s\n' "$dir"
+      return 0
+    fi
+  done
+
+  local path_dirs=()
+  local old_ifs="$IFS"
+  IFS=':'
+  read -r -a path_dirs <<<"$PATH"
+  IFS="$old_ifs"
+
+  for dir in "${path_dirs[@]}"; do
+    if [ -n "$dir" ] && [ "$dir" != "$install_dir" ] && [ -d "$dir" ] && [ -w "$dir" ]; then
+      case "$dir" in
+        "$HOME"/*)
+          printf '%s\n' "$dir"
+          return 0
+          ;;
+      esac
+    fi
+  done
+
+  return 1
+}
+
+create_launcher() {
+  local install_dir="$1"
+  local binary_path="$2"
+  local launcher_dir launcher_path
+
+  if path_contains_dir "$install_dir"; then
+    return 1
+  fi
+
+  launcher_dir="$(find_launcher_dir "$install_dir" || true)"
+  if [ -z "$launcher_dir" ]; then
+    return 1
+  fi
+
+  launcher_path="$launcher_dir/$BIN_NAME"
+  if [ -e "$launcher_path" ] && [ ! -L "$launcher_path" ]; then
+    log "skip launcher creation because $launcher_path already exists"
+    return 1
+  fi
+
+  ln -sfn "$binary_path" "$launcher_path"
+  printf '%s\n' "$launcher_path"
 }
 
 download_base_url() {
@@ -102,7 +177,7 @@ verify_checksum() {
 }
 
 main() {
-  local os arch install_dir asset base_url archive_url checksum_url archive_path binary_path
+  local os arch install_dir asset base_url archive_url checksum_url archive_path binary_path launcher_path metadata_path
 
   trap cleanup EXIT
 
@@ -133,13 +208,27 @@ main() {
 
   cp "$binary_path" "$install_dir/$BIN_NAME"
   chmod 0755 "$install_dir/$BIN_NAME"
+  binary_path="$install_dir/$BIN_NAME"
+  metadata_path="$(launcher_metadata_path "$install_dir")"
 
-  log "installed to $install_dir/$BIN_NAME"
-  if ! printf ':%s:' "$PATH" | grep -q ":$install_dir:"; then
+  launcher_path="$(create_launcher "$install_dir" "$binary_path" || true)"
+  if [ -n "$launcher_path" ]; then
+    printf '%s\n' "$launcher_path" > "$metadata_path"
+    log "created launcher at $launcher_path"
+  else
+    rm -f "$metadata_path"
+  fi
+
+  log "installed to $binary_path"
+  if [ -n "$launcher_path" ]; then
+    log "verify with: $BIN_NAME version"
+  elif ! path_contains_dir "$install_dir"; then
     log "$install_dir is not in PATH"
     log "add this line to your shell profile: export PATH=\"$install_dir:\$PATH\""
+    log "then reload your shell and run: $BIN_NAME version"
+  else
+    log "verify with: $BIN_NAME version"
   fi
-  log "verify with: $BIN_NAME version"
 }
 
 main "$@"
