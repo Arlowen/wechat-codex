@@ -18,26 +18,58 @@ launcher_metadata_path() {
   printf '%s/%s\n' "$install_dir" "$LAUNCHER_FILE_NAME"
 }
 
+resolve_path() {
+  local path="$1"
+  local target dir
+
+  if ! command -v readlink >/dev/null 2>&1; then
+    printf '%s\n' "$path"
+    return
+  fi
+
+  while [ -L "$path" ]; do
+    target="$(readlink "$path")"
+    if [ "${target#/}" != "$target" ]; then
+      path="$target"
+    else
+      dir="$(cd "$(dirname "$path")" && pwd -P)"
+      path="$dir/$target"
+    fi
+  done
+
+  if [ -e "$path" ] || [ -L "$path" ]; then
+    dir="$(cd "$(dirname "$path")" && pwd -P)"
+    printf '%s/%s\n' "$dir" "$(basename "$path")"
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
 resolve_binary_path() {
   local candidate
 
   if [ -n "$INSTALL_DIR" ]; then
     candidate="$INSTALL_DIR/$BIN_NAME"
-    if [ -f "$candidate" ]; then
-      printf '%s\n' "$candidate"
+    if [ -f "$candidate" ] || [ -L "$candidate" ]; then
+      resolve_path "$candidate"
       return
     fi
   fi
 
   candidate="$(type -P "$BIN_NAME" 2>/dev/null || true)"
-  if [ -n "$candidate" ] && [ -f "$candidate" ]; then
-    printf '%s\n' "$candidate"
+  if [ -n "$candidate" ] && { [ -f "$candidate" ] || [ -L "$candidate" ]; }; then
+    resolve_path "$candidate"
     return
   fi
 
-  for candidate in "$DEFAULT_INSTALL_DIR/$BIN_NAME" "/usr/local/bin/$BIN_NAME" "$HOME/.local/bin/$BIN_NAME"; do
-    if [ -f "$candidate" ]; then
-      printf '%s\n' "$candidate"
+  for candidate in \
+    "$DEFAULT_INSTALL_DIR/$BIN_NAME" \
+    "/opt/homebrew/bin/$BIN_NAME" \
+    "/usr/local/bin/$BIN_NAME" \
+    "$HOME/.local/bin/$BIN_NAME" \
+    "$HOME/bin/$BIN_NAME"; do
+    if [ -f "$candidate" ] || [ -L "$candidate" ]; then
+      resolve_path "$candidate"
       return
     fi
   done

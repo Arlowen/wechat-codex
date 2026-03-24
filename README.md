@@ -8,6 +8,15 @@
 curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/install.sh | bash
 ```
 
+## ⬆️ 一键升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/upgrade.sh | bash
+```
+
+升级脚本会优先复用当前安装目录并覆盖更新二进制，默认保留 `~/.wechat-codex` 下的运行时数据。
+如果后台守护进程已经在运行，升级完成后执行 `wechat-codex stop && wechat-codex start -d` 以切换到新版本。
+
 ## 🧹 一键卸载
 
 ```bash

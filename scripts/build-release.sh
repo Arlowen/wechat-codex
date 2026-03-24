@@ -35,7 +35,8 @@ for target in "${TARGETS[@]}"; do
   cp docs/manual.md "$stage_dir/manual.md"
   cp install.sh "$stage_dir/install.sh"
   cp uninstall.sh "$stage_dir/uninstall.sh"
-  chmod 0755 "$stage_dir/wechat-codex" "$stage_dir/install.sh" "$stage_dir/uninstall.sh"
+  cp upgrade.sh "$stage_dir/upgrade.sh"
+  chmod 0755 "$stage_dir/wechat-codex" "$stage_dir/install.sh" "$stage_dir/uninstall.sh" "$stage_dir/upgrade.sh"
 
   tar -C "$DIST_DIR" -czf "$DIST_DIR/$package_name.tar.gz" "$package_name"
   rm -rf "$stage_dir"
