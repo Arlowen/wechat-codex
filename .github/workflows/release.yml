@@ -15,6 +15,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -28,10 +30,13 @@ jobs:
       - name: Build release archives
         run: bash ./scripts/build-release.sh "${GITHUB_REF_NAME}"
 
+      - name: Build release notes
+        run: bash ./scripts/build-release-notes.sh "${GITHUB_REF_NAME}" "dist/release-notes.md"
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/*.tar.gz
             dist/checksums.txt
-          generate_release_notes: true
+          body_path: dist/release-notes.md
