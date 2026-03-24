@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 	"time"
 	"wechat-codex/output"
 	"wechat-codex/wechat"
@@ -77,6 +78,7 @@ var startCmd = &cobra.Command{
 				startArgs = []string{"start"}
 			}
 			c := exec.Command(exe, startArgs...)
+			c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 			logFile, err := os.OpenFile(logFilePath(config.RuntimeDir), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o666)
 			if err != nil {
