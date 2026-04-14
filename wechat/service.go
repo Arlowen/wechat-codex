@@ -23,6 +23,7 @@ type CodexService struct {
 	codex             PromptRunner
 	completionMonitor *SessionCompletionMonitor
 	completionNotices *CompletionNotificationRegistry
+	now               func() time.Time
 	defaultCwd        string
 	allowedUserIDs    map[string]bool
 	pollTimeoutSec    int
@@ -64,6 +65,7 @@ func NewCodexService(
 		sendTyping:        sendTyping,
 		runningPrompts:    NewRunningPromptRegistry(),
 		completionNotices: NewCompletionNotificationRegistry(),
+		now:               time.Now,
 		seenMessageIDs:    make(map[string]bool),
 	}
 }
@@ -713,9 +715,10 @@ func (s *CodexService) notifySessionCompletion(sessionID, cwd, title string, com
 		return
 	}
 
+	completedAt := s.resolveNotificationCompletedAt()
 	projectName := s.resolveNotificationProjectName(cwd)
 	sessionTitle := s.resolveNotificationSessionTitle(sessionID, title)
-	s.sendText(userID, contextToken, fmt.Sprintf("%s-%s-已完成本次对话。", projectName, sessionTitle))
+	s.sendText(userID, contextToken, fmt.Sprintf("【%s】-【%s】-【%s】- 已完成本次对话", completedAt, projectName, sessionTitle))
 }
 
 func (s *CodexService) resolveNotificationProjectName(cwd string) string {
@@ -756,6 +759,13 @@ func (s *CodexService) resolveNotificationSessionTitle(sessionID, title string) 
 		return title
 	}
 	return defaultSessionTitle(sessionID)
+}
+
+func (s *CodexService) resolveNotificationCompletedAt() string {
+	if s.now == nil {
+		return time.Now().Format("2006-01-02 15:04:05")
+	}
+	return s.now().Format("2006-01-02 15:04:05")
 }
 
 func (s *CodexService) loadSessionMetaWithRetry(sessionID string, attempts int, delay time.Duration) *SessionMeta {

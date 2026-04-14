@@ -468,6 +468,7 @@ func TestPromptWorkerSendsFinalAnswer(t *testing.T) {
 		projects: []string{projectDir},
 	})
 	state.SetNotifyTarget("user@im.wechat", "ctx-final")
+	service.now = func() time.Time { return time.Date(2026, time.April, 14, 9, 30, 0, 0, time.UTC) }
 
 	service.runPrompt("user@im.wechat", "ctx-final", "hello")
 
@@ -484,7 +485,7 @@ func TestPromptWorkerSendsFinalAnswer(t *testing.T) {
 	if texts[0] != "answer:hello" {
 		t.Fatalf("expected answer first, got %#v", texts)
 	}
-	if texts[1] != "project-alpha-feature summary-已完成本次对话。" {
+	if texts[1] != "【2026-04-14 09:30:00】-【project-alpha】-【feature summary】- 已完成本次对话" {
 		t.Fatalf("expected completion notification second, got %#v", texts)
 	}
 }
@@ -514,6 +515,7 @@ func TestPromptWorkerKeepsSwitchedSession(t *testing.T) {
 		projects: []string{projectDir},
 	})
 	state.SetNotifyTarget("user@im.wechat", "ctx-final")
+	service.now = func() time.Time { return time.Date(2026, time.April, 14, 9, 31, 0, 0, time.UTC) }
 
 	service.runPrompt("user@im.wechat", "ctx-final", "hello")
 
@@ -536,7 +538,7 @@ func TestPromptWorkerKeepsSwitchedSession(t *testing.T) {
 	if !strings.Contains(messages, "新线程已创建，但你已经切到别的线程") {
 		t.Fatalf("expected switched-session note, got %q", messages)
 	}
-	if !strings.Contains(messages, "project-beta-background thread-已完成本次对话。") {
+	if !strings.Contains(messages, "【2026-04-14 09:31:00】-【project-beta】-【background thread】- 已完成本次对话") {
 		t.Fatalf("expected completion notification, got %q", messages)
 	}
 }
@@ -632,6 +634,7 @@ func TestNotifySessionCompletionDeduplicatesSameCompletion(t *testing.T) {
 	client := &fakeClient{}
 	service, state := newTestService(t, client, &fakeRunner{}, t.TempDir())
 	state.SetNotifyTarget("user@im.wechat", "ctx-notify")
+	service.now = func() time.Time { return time.Date(2026, time.April, 14, 9, 32, 0, 0, time.UTC) }
 
 	service.notifySessionCompletion("sess-1", filepath.Join(t.TempDir(), "project-zeta"), "demo title", 1)
 	service.notifySessionCompletion("sess-1", filepath.Join(t.TempDir(), "project-zeta"), "demo title", 1)
@@ -639,5 +642,8 @@ func TestNotifySessionCompletionDeduplicatesSameCompletion(t *testing.T) {
 	texts := messageTexts(t, client)
 	if len(texts) != 1 {
 		t.Fatalf("expected one deduplicated notification, got %#v", texts)
+	}
+	if texts[0] != "【2026-04-14 09:32:00】-【project-zeta】-【demo title】- 已完成本次对话" {
+		t.Fatalf("unexpected notification text, got %#v", texts)
 	}
 }
