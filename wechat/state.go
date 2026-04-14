@@ -11,11 +11,14 @@ type UserState struct {
 	ActiveSessionID    string   `json:"active_session_id,omitempty"`
 	ActiveCwd          string   `json:"active_cwd,omitempty"`
 	LastSessionIDs     []string `json:"last_session_ids,omitempty"`
+	LastProjectDirs    []string `json:"last_project_dirs,omitempty"`
 	PendingSessionPick bool     `json:"pending_session_pick,omitempty"`
 }
 
 type BotStateData struct {
-	Users map[string]*UserState `json:"users"`
+	Users              map[string]*UserState `json:"users"`
+	NotifyUserID       string                `json:"notify_user_id,omitempty"`
+	NotifyContextToken string                `json:"notify_context_token,omitempty"`
 }
 
 type BotState struct {
@@ -114,6 +117,24 @@ func (s *BotState) GetLastSessionIDs(userID string) []string {
 	return append([]string(nil), u.LastSessionIDs...)
 }
 
+func (s *BotState) SetLastProjectDirs(userID string, dirs []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.getUserLocked(userID)
+	u.LastProjectDirs = append([]string(nil), dirs...)
+	s.saveLocked()
+}
+
+func (s *BotState) GetLastProjectDirs(userID string) []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	u := s.getUserRead(userID)
+	if u == nil {
+		return nil
+	}
+	return append([]string(nil), u.LastProjectDirs...)
+}
+
 func (s *BotState) SetPendingSessionPick(userID string, enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -143,6 +164,20 @@ func (s *BotState) UpdateActiveSessionIfUnchanged(userID, expectedSessionID, nex
 	u.ActiveCwd = cwd
 	s.saveLocked()
 	return true
+}
+
+func (s *BotState) SetNotifyTarget(userID, contextToken string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.NotifyUserID = userID
+	s.data.NotifyContextToken = contextToken
+	s.saveLocked()
+}
+
+func (s *BotState) GetNotifyTarget() (string, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.data.NotifyUserID, s.data.NotifyContextToken
 }
 
 type RunningPromptRegistry struct {

@@ -7,29 +7,36 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"wechat-codex/output"
 )
 
+const completionNotificationDedupWindow = 3 * time.Second
+
 type CodexService struct {
-	client           APIClient
-	store            *AccountStore
-	sessions         *SessionStore
-	state            *BotState
-	codex            PromptRunner
-	defaultCwd       string
-	allowedUserIDs   map[string]bool
-	pollTimeoutSec   int
-	sendTyping       bool
-	runningPrompts   *RunningPromptRegistry
-	seenMessageIDs   map[string]bool
-	seenMessageOrder []string
+	client            APIClient
+	store             *AccountStore
+	sessions          *SessionStore
+	projects          ProjectLister
+	state             *BotState
+	codex             PromptRunner
+	completionMonitor *SessionCompletionMonitor
+	completionNotices *CompletionNotificationRegistry
+	defaultCwd        string
+	allowedUserIDs    map[string]bool
+	pollTimeoutSec    int
+	sendTyping        bool
+	runningPrompts    *RunningPromptRegistry
+	seenMessageIDs    map[string]bool
+	seenMessageOrder  []string
 }
 
 func NewCodexService(
 	client APIClient,
 	store *AccountStore,
 	sessions *SessionStore,
+	projects ProjectLister,
 	state *BotState,
 	codex PromptRunner,
 	defaultCwd string,
@@ -41,23 +48,70 @@ func NewCodexService(
 	for _, id := range allowedUserIDs {
 		allowed[strings.TrimSpace(id)] = true
 	}
-	return &CodexService{
-		client:         client,
-		store:          store,
-		sessions:       sessions,
-		state:          state,
-		codex:          codex,
-		defaultCwd:     defaultCwd,
-		allowedUserIDs: allowed,
-		pollTimeoutSec: pollTimeoutSec,
-		sendTyping:     sendTyping,
-		runningPrompts: NewRunningPromptRegistry(),
-		seenMessageIDs: make(map[string]bool),
+	if projects == nil {
+		projects = NewProjectStore("")
 	}
+	return &CodexService{
+		client:            client,
+		store:             store,
+		sessions:          sessions,
+		projects:          projects,
+		state:             state,
+		codex:             codex,
+		defaultCwd:        defaultCwd,
+		allowedUserIDs:    allowed,
+		pollTimeoutSec:    pollTimeoutSec,
+		sendTyping:        sendTyping,
+		runningPrompts:    NewRunningPromptRegistry(),
+		completionNotices: NewCompletionNotificationRegistry(),
+		seenMessageIDs:    make(map[string]bool),
+	}
+}
+
+type CompletionNotificationRegistry struct {
+	mu       sync.Mutex
+	maxCount map[string]int
+	lastSent map[string]time.Time
+}
+
+func NewCompletionNotificationRegistry() *CompletionNotificationRegistry {
+	return &CompletionNotificationRegistry{
+		maxCount: make(map[string]int),
+		lastSent: make(map[string]time.Time),
+	}
+}
+
+func (r *CompletionNotificationRegistry) TryMarkSent(sessionID string, completionCount int) bool {
+	sessionID = strings.TrimSpace(sessionID)
+	now := time.Now()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if sessionID == "" {
+		return true
+	}
+
+	if completionCount > 0 {
+		if r.maxCount[sessionID] >= completionCount {
+			return false
+		}
+		r.maxCount[sessionID] = completionCount
+		r.lastSent[sessionID] = now
+		return true
+	}
+
+	lastSent := r.lastSent[sessionID]
+	if !lastSent.IsZero() && now.Sub(lastSent) <= completionNotificationDedupWindow {
+		return false
+	}
+	r.lastSent[sessionID] = now
+	return true
 }
 
 func (s *CodexService) RunForever() {
 	buf := s.store.LoadGetUpdatesBuf()
+	s.startCompletionMonitor()
 	output.Infof("Starting WeChat webhook polling")
 
 	for {
@@ -172,6 +226,7 @@ func (s *CodexService) handleMessage(msg map[string]interface{}) {
 		s.sendText(fromUserID, contextToken, "没有权限使用这个 bot。")
 		return
 	}
+	s.state.SetNotifyTarget(fromUserID, contextToken)
 
 	text := extractText(msg["item_list"])
 	if text == "" {
@@ -201,6 +256,10 @@ func (s *CodexService) handleMessage(msg map[string]interface{}) {
 		s.sendHelp(fromUserID, contextToken)
 	case "sessions":
 		s.handleSessions(fromUserID, contextToken, arg)
+	case "projects":
+		s.handleProjects(fromUserID, contextToken, arg)
+	case "project":
+		s.handleProject(fromUserID, contextToken, arg)
 	case "use":
 		s.handleUse(fromUserID, contextToken, arg)
 	case "status":
@@ -219,9 +278,11 @@ func (s *CodexService) handleMessage(msg map[string]interface{}) {
 func (s *CodexService) sendHelp(actorID, contextToken string) {
 	help := `可用命令:
 /sessions [N] - 查看最近 N 条会话（标题 + 编号）
+/projects [N] - 查看 Codex 项目列表（用编号）
+/project sessions <项目编号> [会话数] - 查看该项目下的会话
 /use <编号|session_id> - 切换当前会话
 /history [编号|session_id] [N] - 查看会话最近 N 条消息
-/new [cwd] - 进入新会话模式（下一条普通消息会新建 session）
+/new [项目编号|cwd] - 进入新会话模式（下一条普通消息会新建 session）
 /status - 查看当前绑定会话
 /ask <内容> - 手动提问（可选）
 执行 /sessions 后，可直接发送编号切换会话
@@ -230,21 +291,76 @@ func (s *CodexService) sendHelp(actorID, contextToken string) {
 	s.sendText(actorID, contextToken, help)
 }
 
+func displayProjectDir(dir string) string {
+	if dir == "" {
+		return "未知项目"
+	}
+
+	clean := filepath.Clean(dir)
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return clean
+	}
+	home = filepath.Clean(home)
+	if clean == home {
+		return "~"
+	}
+
+	prefix := home + string(os.PathSeparator)
+	if strings.HasPrefix(clean, prefix) {
+		return "~" + strings.TrimPrefix(clean, home)
+	}
+	return clean
+}
+
+func parseListLimit(raw string, defaultLimit, maxLimit int) (int, error) {
+	limit := defaultLimit
+	if strings.TrimSpace(raw) == "" {
+		return limit, nil
+	}
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0, err
+	}
+	if value < 1 {
+		value = 1
+	}
+	if value > maxLimit {
+		value = maxLimit
+	}
+	return value, nil
+}
+
+func shortSessionID(sessionID string) string {
+	if len(sessionID) > 8 {
+		return sessionID[:8]
+	}
+	return sessionID
+}
+
+func sessionCwdName(cwd string) string {
+	cwdName := filepath.Base(cwd)
+	if cwdName == "." || cwdName == "" {
+		return cwd
+	}
+	return cwdName
+}
+
+func formatSessionEntries(items []SessionMeta, startIndex int) ([]string, []string) {
+	lines := make([]string, 0, len(items))
+	sessionIDs := make([]string, 0, len(items))
+	for i, meta := range items {
+		lines = append(lines, fmt.Sprintf("%d. %s | %s | %s", startIndex+i, meta.Title, shortSessionID(meta.SessionID), sessionCwdName(meta.Cwd)))
+		sessionIDs = append(sessionIDs, meta.SessionID)
+	}
+	return lines, sessionIDs
+}
+
 func (s *CodexService) handleSessions(actorID, contextToken, arg string) {
-	limit := 10
-	if arg != "" {
-		if l, err := strconv.Atoi(arg); err == nil {
-			if l < 1 {
-				l = 1
-			}
-			if l > 30 {
-				l = 30
-			}
-			limit = l
-		} else {
-			s.sendText(actorID, contextToken, "参数错误，示例: /sessions 10")
-			return
-		}
+	limit, err := parseListLimit(arg, 10, 30)
+	if err != nil {
+		s.sendText(actorID, contextToken, "参数错误，示例: /sessions 10")
+		return
 	}
 
 	items, _ := s.sessions.ListRecent(limit)
@@ -253,21 +369,110 @@ func (s *CodexService) handleSessions(actorID, contextToken, arg string) {
 		return
 	}
 
-	var lines []string
-	lines = append(lines, "最近会话（用 /use 编号 切换）:")
-	var sessionIDs []string
-	for i, meta := range items {
-		shortID := meta.SessionID
-		if len(shortID) > 8 {
-			shortID = shortID[:8]
-		}
-		cwdName := filepath.Base(meta.Cwd)
-		if cwdName == "." || cwdName == "" {
-			cwdName = meta.Cwd
-		}
-		lines = append(lines, fmt.Sprintf("%d. %s | %s | %s", i+1, meta.Title, shortID, cwdName))
-		sessionIDs = append(sessionIDs, meta.SessionID)
+	lines := []string{"最近会话（用 /use 编号 切换）:"}
+	sessionLines, sessionIDs := formatSessionEntries(items, 1)
+	lines = append(lines, sessionLines...)
+	lines = append(lines, "直接发送编号即可切换（例如发送: 1）")
+
+	s.sendText(actorID, contextToken, strings.Join(lines, "\n"))
+	s.state.SetLastSessionIDs(actorID, sessionIDs)
+	s.state.SetPendingSessionPick(actorID, true)
+}
+
+func (s *CodexService) handleProjects(actorID, contextToken, arg string) {
+	limit, err := parseListLimit(arg, 10, 30)
+	if err != nil {
+		s.sendText(actorID, contextToken, "参数错误，示例: /projects 10")
+		return
 	}
+
+	items, err := s.projects.ListProjects(limit)
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.sendText(actorID, contextToken, "未找到 Codex 项目配置。")
+			return
+		}
+		s.sendText(actorID, contextToken, fmt.Sprintf("读取 Codex 项目失败: %v", err))
+		return
+	}
+	if len(items) == 0 {
+		s.sendText(actorID, contextToken, "未找到可用的 Codex 项目。")
+		return
+	}
+
+	lines := []string{"Codex 项目（用 /new 编号 新建会话）:"}
+	for i, projectDir := range items {
+		lines = append(lines, fmt.Sprintf("%d. %s", i+1, displayProjectDir(projectDir)))
+	}
+	lines = append(lines, "示例: /new 1")
+
+	s.sendText(actorID, contextToken, strings.Join(lines, "\n"))
+	s.state.SetLastProjectDirs(actorID, items)
+	s.state.SetPendingSessionPick(actorID, false)
+}
+
+func (s *CodexService) handleProject(actorID, contextToken, arg string) {
+	tokens := strings.Fields(arg)
+	if len(tokens) == 0 {
+		s.sendText(actorID, contextToken, "示例: /project sessions 1 10")
+		return
+	}
+
+	switch strings.ToLower(tokens[0]) {
+	case "sessions":
+		s.handleProjectSessions(actorID, contextToken, tokens[1:])
+	default:
+		s.sendText(actorID, contextToken, "示例: /project sessions 1 10")
+	}
+}
+
+func (s *CodexService) resolveProjectSelector(actorID, selector string) (string, string) {
+	raw := strings.TrimSpace(selector)
+	if raw == "" {
+		return "", "示例: /new 1 或 /project sessions 1 10"
+	}
+	idx, err := strconv.Atoi(raw)
+	if err != nil {
+		return "", "项目编号必须是数字。先执行 /projects 查看编号。"
+	}
+	projectDirs := s.state.GetLastProjectDirs(actorID)
+	if idx <= 0 || idx > len(projectDirs) {
+		return "", "编号无效。先执行 /projects，再用编号。"
+	}
+	return projectDirs[idx-1], ""
+}
+
+func (s *CodexService) handleProjectSessions(actorID, contextToken string, args []string) {
+	if len(args) == 0 {
+		s.sendText(actorID, contextToken, "示例: /project sessions 1 10")
+		return
+	}
+
+	projectDir, errStr := s.resolveProjectSelector(actorID, args[0])
+	if errStr != "" {
+		s.sendText(actorID, contextToken, errStr)
+		return
+	}
+
+	limit := 10
+	if len(args) >= 2 {
+		var err error
+		limit, err = parseListLimit(args[1], 10, 30)
+		if err != nil {
+			s.sendText(actorID, contextToken, "会话数必须是数字，示例: /project sessions 1 10")
+			return
+		}
+	}
+
+	items, _ := s.sessions.ListRecentByCwd(projectDir, limit)
+	if len(items) == 0 {
+		s.sendText(actorID, contextToken, fmt.Sprintf("项目 %s 下暂无会话记录。", displayProjectDir(projectDir)))
+		return
+	}
+
+	lines := []string{fmt.Sprintf("项目会话: %s（用 /use 编号 切换）:", displayProjectDir(projectDir))}
+	sessionLines, sessionIDs := formatSessionEntries(items, 1)
+	lines = append(lines, sessionLines...)
 	lines = append(lines, "直接发送编号即可切换（例如发送: 1）")
 
 	s.sendText(actorID, contextToken, strings.Join(lines, "\n"))
@@ -455,17 +660,122 @@ func (s *CodexService) handleNew(actorID, contextToken, arg string) {
 	}
 
 	if cwdRaw != "" {
-		resolvedCwd, err := resolveExistingDir(cwdRaw)
-		if err != nil {
-			s.sendText(actorID, contextToken, err.Error())
-			return
+		if _, err := strconv.Atoi(cwdRaw); err == nil {
+			projectDir, errStr := s.resolveProjectSelector(actorID, cwdRaw)
+			if errStr != "" {
+				s.sendText(actorID, contextToken, errStr)
+				return
+			}
+			targetCwd = projectDir
+		} else {
+			resolvedCwd, err := resolveExistingDir(cwdRaw)
+			if err != nil {
+				s.sendText(actorID, contextToken, err.Error())
+				return
+			}
+			targetCwd = resolvedCwd
 		}
-		targetCwd = resolvedCwd
 	}
 
 	s.state.ClearActiveSession(actorID, targetCwd)
 	s.state.SetPendingSessionPick(actorID, false)
 	s.sendText(actorID, contextToken, fmt.Sprintf("已进入新会话模式，cwd: %s\n下一条普通消息会创建一个新 session。", targetCwd))
+}
+
+func (s *CodexService) startCompletionMonitor() {
+	if s.completionMonitor != nil {
+		return
+	}
+	s.completionMonitor = NewSessionCompletionMonitor(
+		s.sessions.Root,
+		defaultSessionCompletionPollInterval,
+		func(evt SessionCompletionEvent) {
+			s.notifySessionCompletion(evt.SessionID, evt.Cwd, evt.Title, evt.CompletionCount)
+		},
+	)
+	s.completionMonitor.Start()
+}
+
+func (s *CodexService) notifySessionCompletion(sessionID, cwd, title string, completionCount int) {
+	if s.completionNotices != nil && !s.completionNotices.TryMarkSent(sessionID, completionCount) {
+		if s.completionMonitor != nil && sessionID != "" && completionCount > 0 {
+			s.completionMonitor.MarkNotified(sessionID, completionCount)
+		}
+		return
+	}
+
+	if s.completionMonitor != nil && sessionID != "" && completionCount > 0 {
+		s.completionMonitor.MarkNotified(sessionID, completionCount)
+	}
+
+	userID, contextToken := s.state.GetNotifyTarget()
+	if userID == "" || contextToken == "" {
+		return
+	}
+
+	projectName := s.resolveNotificationProjectName(cwd)
+	sessionTitle := s.resolveNotificationSessionTitle(sessionID, title)
+	s.sendText(userID, contextToken, fmt.Sprintf("%s-%s-已完成本次对话。", projectName, sessionTitle))
+}
+
+func (s *CodexService) resolveNotificationProjectName(cwd string) string {
+	target := normalizeSessionDir(cwd)
+	if target != "" {
+		projects, err := s.projects.ListProjects(0)
+		if err == nil {
+			var bestMatch string
+			for _, projectDir := range projects {
+				projectDir = normalizeProjectPath(projectDir)
+				if projectDir == "" {
+					continue
+				}
+				if target == projectDir || strings.HasPrefix(target, projectDir+string(os.PathSeparator)) {
+					if len(projectDir) > len(bestMatch) {
+						bestMatch = projectDir
+					}
+				}
+			}
+			if bestMatch != "" {
+				if base := filepath.Base(bestMatch); base != "" && base != "." && base != string(os.PathSeparator) {
+					return base
+				}
+				return displayProjectDir(bestMatch)
+			}
+		}
+
+		if base := filepath.Base(target); base != "" && base != "." && base != string(os.PathSeparator) {
+			return base
+		}
+	}
+	return "未知项目"
+}
+
+func (s *CodexService) resolveNotificationSessionTitle(sessionID, title string) string {
+	title = strings.TrimSpace(title)
+	if title != "" {
+		return title
+	}
+	return defaultSessionTitle(sessionID)
+}
+
+func (s *CodexService) loadSessionMetaWithRetry(sessionID string, attempts int, delay time.Duration) *SessionMeta {
+	if strings.TrimSpace(sessionID) == "" {
+		return nil
+	}
+	if attempts < 1 {
+		attempts = 1
+	}
+
+	for i := 0; i < attempts; i++ {
+		meta := s.sessions.FindByID(sessionID)
+		if meta != nil {
+			return meta
+		}
+		if i < attempts-1 {
+			time.Sleep(delay)
+		}
+	}
+	return nil
 }
 
 func (s *CodexService) runPrompt(actorID, contextToken, prompt string) {
@@ -555,6 +865,22 @@ func (s *CodexService) runPrompt(actorID, contextToken, prompt string) {
 		}
 
 		s.sendText(actorID, contextToken, answer)
+
+		notifySessionID := res.ThreadID
+		if notifySessionID == "" {
+			notifySessionID = activeID
+		}
+		notifyCwd := cwd
+		notifyTitle := ""
+		notifyCompletionCount := 0
+		if meta := s.loadSessionMetaWithRetry(notifySessionID, 5, 150*time.Millisecond); meta != nil {
+			if meta.Cwd != "" {
+				notifyCwd = meta.Cwd
+			}
+			notifyTitle = meta.Title
+			notifyCompletionCount = meta.CompletedTurns
+		}
+		s.notifySessionCompletion(notifySessionID, notifyCwd, notifyTitle, notifyCompletionCount)
 	}()
 }
 

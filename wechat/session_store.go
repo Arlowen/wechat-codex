@@ -10,11 +10,12 @@ import (
 )
 
 type SessionMeta struct {
-	SessionID string
-	Timestamp string
-	Cwd       string
-	FilePath  string
-	Title     string
+	SessionID      string
+	Timestamp      string
+	Cwd            string
+	FilePath       string
+	Title          string
+	CompletedTurns int
 }
 
 type Message struct {
@@ -58,6 +59,14 @@ func compactText(text string, limit int) string {
 	return string(runeText[:limit-1]) + "…"
 }
 
+func normalizeSessionDir(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Clean(dir)
+}
+
 func parseSessionFile(path string) (*SessionMeta, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -95,6 +104,7 @@ func parseSessionFile(path string) (*SessionMeta, error) {
 
 	timestamp, _ := payload["timestamp"].(string)
 	cwd, _ := payload["cwd"].(string)
+	cwd = normalizeSessionDir(cwd)
 
 	meta := &SessionMeta{
 		SessionID: sessionID,
@@ -103,32 +113,48 @@ func parseSessionFile(path string) (*SessionMeta, error) {
 		FilePath:  path,
 	}
 
-	for i := 0; i < 240 && scanner.Scan(); i++ {
+	for scanner.Scan() {
 		var evt map[string]interface{}
 		if err := json.Unmarshal(scanner.Bytes(), &evt); err == nil {
 			if evt["type"] == "event_msg" {
 				p, ok := evt["payload"].(map[string]interface{})
-				if ok && p["type"] == "user_message" {
-					if msg, ok := p["message"].(string); ok && strings.TrimSpace(msg) != "" {
-						meta.Title = compactText(msg, 46)
-						break
+				if ok {
+					msgType, _ := p["type"].(string)
+					if meta.Title == "" && msgType == "user_message" {
+						if msg, ok := p["message"].(string); ok && strings.TrimSpace(msg) != "" {
+							meta.Title = compactText(msg, 46)
+						}
+					}
+					if msgType == "task_complete" {
+						meta.CompletedTurns++
 					}
 				}
 			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
 
 	if meta.Title == "" {
-		meta.Title = "session " + sessionID
-		if len(meta.Title) > 16 {
-			meta.Title = "session " + sessionID[:8]
-		}
+		meta.Title = defaultSessionTitle(sessionID)
 	}
 
 	return meta, nil
 }
 
 func (s *SessionStore) ListRecent(limit int) ([]SessionMeta, error) {
+	return s.listRecentMatching(limit, func(*SessionMeta) bool { return true })
+}
+
+func (s *SessionStore) ListRecentByCwd(cwd string, limit int) ([]SessionMeta, error) {
+	target := normalizeSessionDir(cwd)
+	return s.listRecentMatching(limit, func(meta *SessionMeta) bool {
+		return meta != nil && meta.Cwd == target
+	})
+}
+
+func (s *SessionStore) listRecentMatching(limit int, match func(*SessionMeta) bool) ([]SessionMeta, error) {
 	files, err := s.walkJsonl()
 	if err != nil || len(files) == 0 {
 		return nil, err
@@ -146,9 +172,9 @@ func (s *SessionStore) ListRecent(limit int) ([]SessionMeta, error) {
 	var sessions []SessionMeta
 	for _, f := range files {
 		meta, _ := parseSessionFile(f)
-		if meta != nil {
+		if meta != nil && match(meta) {
 			sessions = append(sessions, *meta)
-			if len(sessions) >= limit {
+			if limit > 0 && len(sessions) >= limit {
 				break
 			}
 		}
@@ -216,4 +242,15 @@ func (s *SessionStore) GetHistory(sessionID string, limit int) (*SessionMeta, []
 
 func CompactMessage(text string, limit int) string {
 	return compactText(text, limit)
+}
+
+func defaultSessionTitle(sessionID string) string {
+	if sessionID == "" {
+		return "session"
+	}
+	title := "session " + sessionID
+	if len(title) > 16 {
+		return "session " + sessionID[:8]
+	}
+	return title
 }

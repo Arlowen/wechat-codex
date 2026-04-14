@@ -96,7 +96,7 @@ install_script_url() {
     return
   fi
 
-  printf 'https://raw.githubusercontent.com/%s/main/install.sh\n' "$REPO"
+  printf 'https://raw.githubusercontent.com/%s/main/scripts/install.sh\n' "$REPO"
 }
 
 service_running() {

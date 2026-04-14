@@ -39,7 +39,9 @@ print_run_summary() {
   log_info "Completed at: ${end_at}"
 }
 
-cd "$(dirname "$0")"
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+cd "$ROOT_DIR"
 
 BIN_PATH="bin/wechat-codex"
 

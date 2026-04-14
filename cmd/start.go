@@ -122,6 +122,7 @@ var startCmd = &cobra.Command{
 		client := wechat.NewClient(baseURL, acc.Token)
 
 		sessions := wechat.NewSessionStore(config.SessionsRoot)
+		projects := wechat.NewProjectStore("")
 
 		botState := wechat.NewBotState(config.RuntimeDir)
 		codexRunner := wechat.NewCodexRunner(config.CodexBin)
@@ -134,6 +135,7 @@ var startCmd = &cobra.Command{
 			client,
 			store,
 			sessions,
+			projects,
 			botState,
 			codexRunner,
 			config.DefaultCwd,

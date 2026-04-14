@@ -31,12 +31,16 @@ for target in "${TARGETS[@]}"; do
       -ldflags="-s -w -X wechat-codex/cmd.Version=$VERSION -X wechat-codex/cmd.Commit=$COMMIT_SHA -X wechat-codex/cmd.BuildDate=$BUILD_DATE" \
       -o "$stage_dir/wechat-codex" .
 
+  mkdir -p "$stage_dir/scripts"
   cp README.md "$stage_dir/README.md"
   cp docs/manual.md "$stage_dir/manual.md"
-  cp install.sh "$stage_dir/install.sh"
-  cp uninstall.sh "$stage_dir/uninstall.sh"
-  cp upgrade.sh "$stage_dir/upgrade.sh"
-  chmod 0755 "$stage_dir/wechat-codex" "$stage_dir/install.sh" "$stage_dir/uninstall.sh" "$stage_dir/upgrade.sh"
+  cp scripts/install.sh "$stage_dir/scripts/install.sh"
+  cp scripts/uninstall.sh "$stage_dir/scripts/uninstall.sh"
+  cp scripts/upgrade.sh "$stage_dir/scripts/upgrade.sh"
+  chmod 0755 "$stage_dir/wechat-codex" \
+    "$stage_dir/scripts/install.sh" \
+    "$stage_dir/scripts/uninstall.sh" \
+    "$stage_dir/scripts/upgrade.sh"
 
   tar -C "$DIST_DIR" -czf "$DIST_DIR/$package_name.tar.gz" "$package_name"
   rm -rf "$stage_dir"

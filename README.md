@@ -5,13 +5,13 @@
 ## 🚀 一键安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/scripts/install.sh | bash
 ```
 
 ## ⬆️ 一键升级
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/upgrade.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/scripts/upgrade.sh | bash
 ```
 
 升级脚本会优先复用当前安装目录并覆盖更新二进制，默认保留 `~/.wechat-codex` 下的运行时数据。
@@ -20,5 +20,5 @@ curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/upgrade.s
 ## 🧹 一键卸载
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/uninstall.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Arlowen/wechat-codex/main/scripts/uninstall.sh | bash
 ```
