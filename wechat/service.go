@@ -74,41 +74,77 @@ type CompletionNotificationRegistry struct {
 	mu       sync.Mutex
 	maxCount map[string]int
 	lastSent map[string]time.Time
+	inFlight map[string]int
 }
 
 func NewCompletionNotificationRegistry() *CompletionNotificationRegistry {
 	return &CompletionNotificationRegistry{
 		maxCount: make(map[string]int),
 		lastSent: make(map[string]time.Time),
+		inFlight: make(map[string]int),
 	}
 }
 
-func (r *CompletionNotificationRegistry) TryMarkSent(sessionID string, completionCount int) bool {
+func (r *CompletionNotificationRegistry) TryReserve(sessionID string, completionCount int) bool {
 	sessionID = strings.TrimSpace(sessionID)
 	now := time.Now()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if sessionID == "" {
-		return true
-	}
-
 	if completionCount > 0 {
 		if r.maxCount[sessionID] >= completionCount {
 			return false
 		}
-		r.maxCount[sessionID] = completionCount
-		r.lastSent[sessionID] = now
+		if r.inFlight[sessionID] >= completionCount {
+			return false
+		}
+		r.inFlight[sessionID] = completionCount
 		return true
 	}
 
-	lastSent := r.lastSent[sessionID]
-	if !lastSent.IsZero() && now.Sub(lastSent) <= completionNotificationDedupWindow {
+	if r.inFlight[sessionID] == 0 {
+		r.inFlight[sessionID] = -1
+	} else {
 		return false
 	}
-	r.lastSent[sessionID] = now
+	lastSent := r.lastSent[sessionID]
+	if !lastSent.IsZero() && now.Sub(lastSent) <= completionNotificationDedupWindow {
+		delete(r.inFlight, sessionID)
+		return false
+	}
 	return true
+}
+
+func (r *CompletionNotificationRegistry) MarkSent(sessionID string, completionCount int) {
+	sessionID = strings.TrimSpace(sessionID)
+	now := time.Now()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if completionCount > 0 && completionCount > r.maxCount[sessionID] {
+		r.maxCount[sessionID] = completionCount
+	}
+	r.lastSent[sessionID] = now
+	delete(r.inFlight, sessionID)
+}
+
+func (r *CompletionNotificationRegistry) Release(sessionID string, completionCount int) {
+	sessionID = strings.TrimSpace(sessionID)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if completionCount > 0 {
+		if r.inFlight[sessionID] == completionCount {
+			delete(r.inFlight, sessionID)
+		}
+		return
+	}
+	if r.inFlight[sessionID] == -1 {
+		delete(r.inFlight, sessionID)
+	}
 }
 
 func (s *CodexService) RunForever() {
@@ -173,6 +209,48 @@ func (s *CodexService) sendText(toUserID, contextToken, text string) {
 			output.Warnf("wechat sendmessage failed: %v", err)
 		}
 	}
+}
+
+func uniqueContextTokens(tokens []string) []string {
+	seen := make(map[string]bool)
+	result := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		token = strings.TrimSpace(token)
+		if seen[token] {
+			continue
+		}
+		seen[token] = true
+		result = append(result, token)
+	}
+	return result
+}
+
+func (s *CodexService) sendTextCandidates(toUserID string, contextTokens []string, text string) error {
+	tokens := uniqueContextTokens(contextTokens)
+	if len(tokens) == 0 {
+		tokens = []string{""}
+	}
+
+	chunks := s.chunkText(text, 3500)
+	var lastErr error
+	for _, chunk := range chunks {
+		sent := false
+		for _, contextToken := range tokens {
+			if _, err := s.client.SendText(toUserID, contextToken, chunk); err != nil {
+				lastErr = err
+				continue
+			}
+			sent = true
+			break
+		}
+		if !sent {
+			if lastErr == nil {
+				lastErr = fmt.Errorf("wechat sendmessage failed")
+			}
+			return lastErr
+		}
+	}
+	return nil
 }
 
 func (s *CodexService) chunkText(text string, size int) []string {
@@ -699,26 +777,38 @@ func (s *CodexService) startCompletionMonitor() {
 }
 
 func (s *CodexService) notifySessionCompletion(sessionID, cwd, title string, completionCount int) {
-	if s.completionNotices != nil && !s.completionNotices.TryMarkSent(sessionID, completionCount) {
-		if s.completionMonitor != nil && sessionID != "" && completionCount > 0 {
-			s.completionMonitor.MarkNotified(sessionID, completionCount)
-		}
+	if s.completionNotices != nil && !s.completionNotices.TryReserve(sessionID, completionCount) {
 		return
 	}
-
-	if s.completionMonitor != nil && sessionID != "" && completionCount > 0 {
-		s.completionMonitor.MarkNotified(sessionID, completionCount)
-	}
+	reserved := s.completionNotices != nil
+	sent := false
+	defer func() {
+		if reserved && !sent {
+			s.completionNotices.Release(sessionID, completionCount)
+		}
+	}()
 
 	userID, contextToken := s.state.GetNotifyTarget()
-	if userID == "" || contextToken == "" {
+	if userID == "" {
 		return
 	}
 
 	completedAt := s.resolveNotificationCompletedAt()
 	projectName := s.resolveNotificationProjectName(cwd)
 	sessionTitle := s.resolveNotificationSessionTitle(sessionID, title)
-	s.sendText(userID, contextToken, fmt.Sprintf("【%s】-【%s】-【%s】- 已完成本次对话", completedAt, projectName, sessionTitle))
+	message := fmt.Sprintf("【%s】-【%s】-【%s】- 已完成本次对话", completedAt, projectName, sessionTitle)
+	if err := s.sendTextCandidates(userID, []string{contextToken, ""}, message); err != nil {
+		output.Warnf("wechat completion notification failed: %v", err)
+		return
+	}
+
+	sent = true
+	if s.completionNotices != nil {
+		s.completionNotices.MarkSent(sessionID, completionCount)
+	}
+	if s.completionMonitor != nil && sessionID != "" && completionCount > 0 {
+		s.completionMonitor.MarkNotified(sessionID, completionCount)
+	}
 }
 
 func (s *CodexService) resolveNotificationProjectName(cwd string) string {

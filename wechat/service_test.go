@@ -104,8 +104,10 @@ func messageTexts(t *testing.T, client *fakeClient) []string {
 }
 
 type fakeClient struct {
-	mu   sync.Mutex
-	sent []string
+	mu           sync.Mutex
+	sent         []string
+	attempted    []string
+	sendTextHook func(string, string, string) (string, error)
 }
 
 func (c *fakeClient) GetUpdates(buf string, timeoutSec int) (map[string]interface{}, error) {
@@ -114,9 +116,27 @@ func (c *fakeClient) GetUpdates(buf string, timeoutSec int) (map[string]interfac
 
 func (c *fakeClient) SendText(toUserID, contextToken, text string) (string, error) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.sent = append(c.sent, fmt.Sprintf("%s|%s|%s", toUserID, contextToken, text))
-	return fmt.Sprintf("mid-%d", len(c.sent)), nil
+	raw := fmt.Sprintf("%s|%s|%s", toUserID, contextToken, text)
+	c.attempted = append(c.attempted, raw)
+	hook := c.sendTextHook
+	c.mu.Unlock()
+
+	if hook != nil {
+		messageID, err := hook(toUserID, contextToken, text)
+		if err != nil {
+			return "", err
+		}
+		c.mu.Lock()
+		c.sent = append(c.sent, raw)
+		c.mu.Unlock()
+		return messageID, nil
+	}
+
+	c.mu.Lock()
+	c.sent = append(c.sent, raw)
+	count := len(c.sent)
+	c.mu.Unlock()
+	return fmt.Sprintf("mid-%d", count), nil
 }
 
 func (c *fakeClient) GetConfig(ilinkUserID, contextToken string) (map[string]interface{}, error) {
@@ -134,6 +154,12 @@ func (c *fakeClient) messages() []string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]string(nil), c.sent...)
+}
+
+func (c *fakeClient) attempts() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.attempted...)
 }
 
 type fakeRunner struct {
@@ -645,5 +671,71 @@ func TestNotifySessionCompletionDeduplicatesSameCompletion(t *testing.T) {
 	}
 	if texts[0] != "【2026-04-14 09:32:00】-【project-zeta】-【demo title】- 已完成本次对话" {
 		t.Fatalf("unexpected notification text, got %#v", texts)
+	}
+}
+
+func TestNotifySessionCompletionFallsBackWithoutContextToken(t *testing.T) {
+	client := &fakeClient{
+		sendTextHook: func(toUserID, contextToken, text string) (string, error) {
+			if contextToken != "" {
+				return "", errors.New("expired context token")
+			}
+			return "mid-fallback", nil
+		},
+	}
+	service, state := newTestService(t, client, &fakeRunner{}, t.TempDir())
+	state.SetNotifyTarget("user@im.wechat", "ctx-stale")
+	service.now = func() time.Time { return time.Date(2026, time.April, 14, 9, 33, 0, 0, time.UTC) }
+
+	service.notifySessionCompletion("sess-1", filepath.Join(t.TempDir(), "project-theta"), "demo title", 1)
+
+	attempts := client.attempts()
+	if len(attempts) != 2 {
+		t.Fatalf("expected two send attempts, got %#v", attempts)
+	}
+	if !strings.Contains(attempts[0], "|ctx-stale|") {
+		t.Fatalf("expected first attempt to use saved context token, got %#v", attempts)
+	}
+	if !strings.Contains(attempts[1], "||") {
+		t.Fatalf("expected second attempt without context token, got %#v", attempts)
+	}
+
+	texts := messageTexts(t, client)
+	if len(texts) != 1 {
+		t.Fatalf("expected one delivered notification, got %#v", texts)
+	}
+	if texts[0] != "【2026-04-14 09:33:00】-【project-theta】-【demo title】- 已完成本次对话" {
+		t.Fatalf("unexpected fallback notification text, got %#v", texts)
+	}
+}
+
+func TestNotifySessionCompletionRetriesAfterFailedDelivery(t *testing.T) {
+	var attempts int
+	client := &fakeClient{
+		sendTextHook: func(toUserID, contextToken, text string) (string, error) {
+			attempts++
+			if attempts <= 2 {
+				return "", errors.New("temporary send failure")
+			}
+			return "mid-retry", nil
+		},
+	}
+	service, state := newTestService(t, client, &fakeRunner{}, t.TempDir())
+	state.SetNotifyTarget("user@im.wechat", "ctx-retry")
+	service.now = func() time.Time { return time.Date(2026, time.April, 14, 9, 34, 0, 0, time.UTC) }
+
+	service.notifySessionCompletion("sess-1", filepath.Join(t.TempDir(), "project-iota"), "demo title", 1)
+	if len(client.messages()) != 0 {
+		t.Fatalf("expected first delivery to fail, got %#v", client.messages())
+	}
+
+	service.notifySessionCompletion("sess-1", filepath.Join(t.TempDir(), "project-iota"), "demo title", 1)
+
+	texts := messageTexts(t, client)
+	if len(texts) != 1 {
+		t.Fatalf("expected retry delivery to succeed once, got %#v", texts)
+	}
+	if texts[0] != "【2026-04-14 09:34:00】-【project-iota】-【demo title】- 已完成本次对话" {
+		t.Fatalf("unexpected retry notification text, got %#v", texts)
 	}
 }
